@@ -121,7 +121,8 @@ namespace labx0::ui
     {
     public:
         ChoiceStack (APVTS& state, const juce::String& idA, const juce::String& captionA,
-                     const juce::String& idB = {}, const juce::String& captionB = {})
+                     const juce::String& idB = {}, const juce::String& captionB = {},
+                     const juce::String& idC = {}, const juce::String& captionC = {})
             : top (state, idA, captionA)
         {
             addAndMakeVisible (top);
@@ -130,13 +131,20 @@ namespace labx0::ui
                 bottom = std::make_unique<LabeledChoice> (state, idB, captionB);
                 addAndMakeVisible (*bottom);
             }
+            if (idC.isNotEmpty())
+            {
+                third = std::make_unique<LabeledChoice> (state, idC, captionC);
+                addAndMakeVisible (*third);
+            }
         }
 
-        void bind (const juce::String& idA, const juce::String& idB = {})
+        void bind (const juce::String& idA, const juce::String& idB = {}, const juce::String& idC = {})
         {
             top.bind (idA);
             if (bottom != nullptr && idB.isNotEmpty())
                 bottom->bind (idB);
+            if (third != nullptr && idC.isNotEmpty())
+                third->bind (idC);
         }
 
         void resized() override
@@ -148,6 +156,16 @@ namespace labx0::ui
                 top.setBounds (b.withHeight (h).withY (b.getY() + 8));
                 return;
             }
+            if (third != nullptr)
+            {
+                // Three rows share the height evenly; the rows sit close when space is short.
+                const int step = std::max (h, b.getHeight() / 3);
+                const int y0 = b.getY() + std::max (0, (b.getHeight() - 2 * step - h) / 2);
+                top.setBounds (b.getX(), y0, b.getWidth(), h);
+                bottom->setBounds (b.getX(), y0 + step, b.getWidth(), h);
+                third->setBounds (b.getX(), y0 + 2 * step, b.getWidth(), h);
+                return;
+            }
             const int spare = std::max (0, b.getHeight() - 2 * h);
             top.setBounds (b.removeFromTop (h + spare / 3).withHeight (h).translated (0, spare / 6));
             bottom->setBounds (b.withHeight (h).translated (0, spare / 6));
@@ -155,7 +173,7 @@ namespace labx0::ui
 
     private:
         LabeledChoice top;
-        std::unique_ptr<LabeledChoice> bottom;
+        std::unique_ptr<LabeledChoice> bottom, third;
     };
 
     // Phosphor oscilloscope with a rising-edge trigger and a short persistence trail.

@@ -50,10 +50,12 @@ namespace labx0
 
         inline constexpr int padBase   = numGlobal;
         inline constexpr int breakBase = padBase + numPads * numPadFields;
-        inline constexpr int count     = breakBase + numBreaks * numBreakFields;
+        inline constexpr int outBase   = breakBase + numBreaks * numBreakFields;   // 0.2.0, appended: older indices stay
+        inline constexpr int count     = outBase + numPads + numBreaks;
 
         constexpr int pad (int p, int field) noexcept { return padBase + p * numPadFields + field; }
         constexpr int brk (int b, int field) noexcept { return breakBase + b * numBreakFields + field; }
+        constexpr int out (int lane) noexcept         { return outBase + lane; }   // lane 0-15 pads, 16-19 breaks
     }
 
     // Choice indices that the DSP code relies on.
@@ -167,6 +169,18 @@ namespace labx0
                 add (id + "route",   name + "Route",    Kind::choice, 0.0f, 2.0f,    0.0f,   0.0f,   Smooth::none,   "", routeNames);
             }
 
+            // Output per lane (0.2.0): Main, or a stereo output of its own (2..21) for a mixer track in the host.
+            juce::StringArray outputs { "Main" };
+            for (int k = 2; k <= numAuxOutputs + 1; ++k)
+                outputs.add (juce::String (k));
+            for (int lane = 0; lane < numPads + numBreaks; ++lane)
+            {
+                const auto id = lane < numPads ? padPrefix (lane) : breakPrefix (lane - numPads);
+                const auto name = lane < numPads ? "Pad " + juce::String (lane + 1) + " " : "Break " + breakLetter (lane - numPads) + " ";
+                add (id + "out", name + "Output", Kind::choice, 0.0f, (float) numAuxOutputs, 0.0f, 0.0f, Smooth::none, "",
+                     outputs.joinIntoString ("|"));
+            }
+
             jassert ((int) s.size() == P::count);
             return s;
         }();
@@ -184,6 +198,7 @@ namespace labx0
 
     inline juce::String padParamId (int pad, int field)   { return paramSpecs()[(size_t) P::pad (pad, field)].id; }
     inline juce::String breakParamId (int b, int field)   { return paramSpecs()[(size_t) P::brk (b, field)].id; }
+    inline juce::String outParamId (int lane)             { return paramSpecs()[(size_t) P::out (lane)].id; }
 
     inline juce::NormalisableRange<float> rangeFor (const ParamSpec& s)
     {

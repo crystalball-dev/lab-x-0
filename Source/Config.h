@@ -23,6 +23,7 @@ namespace labx0
     inline constexpr int previewSlot    = numPads + numBreaks;
     inline constexpr int numSlots       = previewSlot + 1;
 
+    inline constexpr int numAuxOutputs   = numPads + numBreaks;   // stereo outputs 2..21, one per lane if wanted
     inline constexpr int maxPadVoices    = 48;   // shared by all pads
     inline constexpr int maxVoicesPerPad = 4;    // Poly mode
     inline constexpr int controlBlock    = 16;   // samples per control-rate step

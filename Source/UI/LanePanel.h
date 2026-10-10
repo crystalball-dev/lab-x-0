@@ -25,7 +25,8 @@ namespace labx0::ui
                 addChildComponent (*padKnobs[(size_t) i]);
             }
             padStackA = std::make_unique<ChoiceStack> (state, padParamId (0, P::padReverse), "REVERSE", padParamId (0, P::padMode), "MODE");
-            padStackB = std::make_unique<ChoiceStack> (state, padParamId (0, P::padChoke), "CHOKE", padParamId (0, P::padRoute), "ROUTE");
+            padStackB = std::make_unique<ChoiceStack> (state, padParamId (0, P::padChoke), "CHOKE", padParamId (0, P::padRoute), "ROUTE",
+                                                       outParamId (0), "OUT");
             addChildComponent (*padStackA);
             addChildComponent (*padStackB);
 
@@ -39,7 +40,7 @@ namespace labx0::ui
             }
             breakStackA = std::make_unique<ChoiceStack> (state, breakParamId (0, P::brFit), "FIT", breakParamId (0, P::brBeats), "BEATS");
             breakStackB = std::make_unique<ChoiceStack> (state, breakParamId (0, P::brSlicing), "SLICING", breakParamId (0, P::brGate), "GATE");
-            breakStackC = std::make_unique<ChoiceStack> (state, breakParamId (0, P::brRoute), "ROUTE");
+            breakStackC = std::make_unique<ChoiceStack> (state, breakParamId (0, P::brRoute), "ROUTE", outParamId (numPads), "OUT");
             addChildComponent (*breakStackA);
             addChildComponent (*breakStackB);
             addChildComponent (*breakStackC);
@@ -204,7 +205,7 @@ namespace labx0::ui
             if (pad)
             {
                 padStackA->bind (padParamId (lane, P::padReverse), padParamId (lane, P::padMode));
-                padStackB->bind (padParamId (lane, P::padChoke), padParamId (lane, P::padRoute));
+                padStackB->bind (padParamId (lane, P::padChoke), padParamId (lane, P::padRoute), outParamId (lane));
             }
             padStackA->setVisible (pad);
             padStackB->setVisible (pad);
@@ -220,7 +221,7 @@ namespace labx0::ui
             {
                 breakStackA->bind (breakParamId (b, P::brFit), breakParamId (b, P::brBeats));
                 breakStackB->bind (breakParamId (b, P::brSlicing), breakParamId (b, P::brGate));
-                breakStackC->bind (breakParamId (b, P::brRoute));
+                breakStackC->bind (breakParamId (b, P::brRoute), outParamId (numPads + b));
             }
             breakStackA->setVisible (brk);
             breakStackB->setVisible (brk);

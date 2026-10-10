@@ -1030,6 +1030,56 @@ def t30_pattern_switch(T):
     T.record(30, "a pattern queued before the host loops back starts at the loop start", not loops, {"wrong": loops})
 
 
+def t31_outputs(T):
+    """Per-lane outputs (0.2.0): a lane set to output k leaves on that stereo bus, aligned with the main output to the
+    sample, carrying its own level and pan, before ANOMALY and PUNCH; with only the main output it plays there."""
+    clicks = [k * 4 * STEP for k in range(4)]
+    snares = [(2 + 4 * k) * STEP for k in range(4)]
+    common = INIT + ["--bpm", BPM, "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"), "--set", "p01_route=2",
+                     "--set", "p02_route=2", "--pattern", pat(["p1:x...x...x...x...", "p2:..x...x...x...x."]), "--seconds", "1.35"]
+    prefix = OUT / "outputs"
+    for old in OUT.glob("outputs_out*.wav"):
+        old.unlink()
+    wav, st = render("outputs_main", common + ["--set", "p01_out=1", "--multi-out", prefix])
+    main, sr = load_mono(wav)
+    aux_file = pathlib.Path(str(prefix) + "_out2.wav")
+    aux, _ = load_mono(aux_file) if aux_file.exists() else (np.zeros(10), sr)
+    on_aux = detect_onsets(aux, sr, rel=0.25, min_gap=0.05)
+    on_main = detect_onsets(main, sr, rel=0.25, min_gap=0.05)
+    ok_aux, worst_aux = match_times(on_aux, clicks, 1.01 / sr)
+    ok_main, worst_main = match_times(on_main, snares, 1.01 / sr)
+    others = sorted(OUT.glob("outputs_out*.wav"))
+    T.record(31, "a pad on output 2 leaves there, on the sample; the main output keeps the rest", clean(st) and ok_aux and ok_main
+             and st.get("outputs") == "21" and [f.name for f in others] == ["outputs_out2.wav"],
+             {"outputs": st.get("outputs"), "aux_onsets_s": [round(t, 5) for t in on_aux], "main_onsets_s": [round(t, 5) for t in on_main],
+              "files": [f.name for f in others]})
+
+    wav, st = render("outputs_fallback", common + ["--set", "p01_out=1"])
+    m, sr = load_mono(wav)
+    both = detect_onsets(m, sr, rel=0.25, min_gap=0.05)
+    ok, _ = match_times(both, sorted(clicks + snares), 1.01 / sr)
+    T.record(31, "with only the main output enabled, a lane set to output 2 plays on the main output", clean(st) and ok,
+             {"onsets_s": [round(t, 5) for t in both]})
+
+    wav, st = render("outputs_level", common + ["--set", "p01_out=1", "--set", "p01_level=-12", "--multi-out", OUT / "outputs_level"])
+    quiet_peak = float(st.get("out2_peak_db", "0"))
+    _, st0 = render("outputs_level0", common + ["--set", "p01_out=1", "--multi-out", OUT / "outputs_level0"])
+    drop = float(st0.get("out2_peak_db", "0")) - quiet_peak
+    T.record(31, "the lane's own level applies on its output (-12 dB)", abs(drop - 12.0) < 0.1, {"drop_db": round(drop, 2)})
+
+    # A VOLUME mute over the whole bar silences the main output's FULL bus, not a lane on its own output.
+    muted = ["--set", "p02_route=0", "--pat", "0:" + pat(["p1:x...x...x...x...", "p2:..x...x...x...x.", "v:mmmmmmmmmmmmmmmm"])]
+    wav, st = render("outputs_anomaly", INIT + ["--bpm", BPM, "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"),
+                                                "--set", "p01_route=2", "--set", "p01_out=1", "--seconds", "1.35",
+                                                "--multi-out", OUT / "outputs_anomaly"] + muted)
+    m, sr = load_mono(wav)
+    a, _ = load_mono(pathlib.Path(str(OUT / "outputs_anomaly") + "_out2.wav"))
+    main_level = rms_db(seg(m, sr, 0.05, 1.3))
+    ok_clicks, _ = match_times(detect_onsets(a, sr, rel=0.25, min_gap=0.05), clicks, 1.01 / sr)
+    T.record(31, "ANOMALY acts on the main output only: a muted bar leaves the lane on output 2 playing", clean(st) and ok_clicks
+             and main_level < -80, {"main_rms_db": round(main_level, 1)})
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 class Runner:
@@ -1067,7 +1117,8 @@ def main():
              (13, t13_categories), (14, t14_settings), (15, t15_kit), (16, t16_tempo), (17, t17_slicing), (18, t18_break_fit),
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
-             (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch)]
+             (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
+             (31, t31_outputs)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

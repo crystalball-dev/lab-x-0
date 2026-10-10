@@ -12,8 +12,19 @@ namespace
     enum Stage { stageVoice = 0, stageAnomaly, stageTransient, stageMultiband, stageSlam, stageOutput, numStages };
 }
 
+// The main stereo output, then 20 more, one per lane if wanted. They are active by default: FL Studio skips outputs a
+// plugin marks inactive unless "Process inactive inputs and outputs" is set, and "Auto map outputs" maps the rest to
+// consecutive mixer tracks.
+juce::AudioProcessor::BusesProperties LabX0AudioProcessor::makeBuses()
+{
+    auto buses = BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+    for (int k = 0; k < numAuxOutputs; ++k)
+        buses = buses.withOutput ("Out " + juce::String (k + 2), juce::AudioChannelSet::stereo(), true);
+    return buses;
+}
+
 LabX0AudioProcessor::LabX0AudioProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (makeBuses()),
       apvts (*this, nullptr, "LABX0", createParameterLayout())
 {
     const auto& specs = paramSpecs();
@@ -151,6 +162,14 @@ void LabX0AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
     const int latency = dryDelayLength + regulator.getLatency();
     setLatencySamples (latency);
+    auxDelayLength = latency;
+    for (auto& a : aux)
+    {
+        a.delayL.assign ((size_t) auxDelayLength + 1, 0.0f);
+        a.delayR.assign ((size_t) auxDelayLength + 1, 0.0f);
+        a.delayPos = 0;
+        a.channel = -1;
+    }
     meters.latency.store (latency);
 
     busStorage.assign ((size_t) controlBlock * 8, 0.0f);
@@ -194,6 +213,9 @@ bool LabX0AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     const auto out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
         return false;
+    for (int k = 1; k < layouts.outputBuses.size(); ++k)
+        if (! layouts.outputBuses[k].isDisabled() && layouts.outputBuses[k] != juce::AudioChannelSet::stereo())
+            return false;
     return layouts.getMainInputChannelSet().isDisabled() || layouts.inputBuses.isEmpty();
 }
 
@@ -205,6 +227,24 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
     buffer.clear();
+
+    // Which of the extra outputs the host gives us this block (any it has not enabled send their lanes to the main one).
+    {
+        const int busCount = getBusCount (false);
+        for (int k = 0; k < numAuxOutputs; ++k)
+        {
+            auto& a = aux[(size_t) k];
+            a.channel = -1;
+            if (k + 1 >= busCount || a.delayL.empty())
+                continue;
+            if (const auto* bus = getBus (false, k + 1); bus != nullptr && bus->isEnabled() && bus->getNumberOfChannels() == 2)
+            {
+                const int ch = getChannelIndexInProcessBlockBuffer (false, k + 1, 0);
+                if (ch >= 0 && ch + 1 < numChannels)
+                    a.channel = ch;
+            }
+        }
+    }
 
     bank.beginBlock (blockSamples);
     struct BlockEnd
@@ -389,6 +429,24 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             buffer.copyFrom (0, pos, blockL.data(), n, 0.5f);
             buffer.addFrom (0, pos, blockR.data(), n, 0.5f);
         }
+        for (auto& a : aux)
+        {
+            if (a.channel < 0)
+                continue;
+            float* outAL = buffer.getWritePointer (a.channel, pos);
+            float* outAR = buffer.getWritePointer (a.channel + 1, pos);
+            for (int i = 0; i < n; ++i)
+            {
+                a.delayL[(size_t) a.delayPos] = a.l[(size_t) i];
+                a.delayR[(size_t) a.delayPos] = a.r[(size_t) i];
+                int readPos = a.delayPos + 1;
+                if (readPos > auxDelayLength)
+                    readPos = 0;
+                outAL[i] = a.delayL[(size_t) readPos];
+                outAR[i] = a.delayR[(size_t) readPos];
+                a.delayPos = readPos;
+            }
+        }
 
         for (int i = 0; i < n; ++i)
         {
@@ -529,6 +587,8 @@ void LabX0AudioProcessor::updateControl (int n) noexcept
                 voice.updateFilter (breakSettings[(size_t) b].tone);
 
     widthValue = v[P::width];
+    for (int lane = 0; lane < numPads + numBreaks; ++lane)
+        laneOut[(size_t) lane] = std::clamp ((int) std::lround (v[(size_t) P::out (lane)]), 0, numAuxOutputs);
 }
 
 void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, double q) noexcept
@@ -549,10 +609,16 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
     float* dryL = bus[4]; float* dryR = bus[5];
     float* busL[3] = { fullL, punchL, dryL };
     float* busR[3] = { fullR, punchR, dryR };
+    for (auto& a : aux)
+        if (a.channel >= 0)
+        {
+            std::fill_n (a.l.data(), n, 0.0f);
+            std::fill_n (a.r.data(), n, 0.0f);
+        }
 
     // Every voice renders on its own first, so a voice that runs away is stopped alone and named in the log.
     const dsp::VoiceOutput temp { { tempL, tempL, tempL }, { tempR, tempR, tempR } };
-    auto addVoice = [&] (int route)
+    auto addVoice = [&] (int route, int lane)
     {
         const float pk = blockPeak (tempL, tempR, n);
         if (! (pk <= voiceLimit))
@@ -560,10 +626,17 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
             noteFault (stageVoice, pk, true);
             return false;
         }
+        float* toL = busL[route];
+        float* toR = busR[route];
+        if (const int o = laneOut[(size_t) lane]; o > 0 && aux[(size_t) (o - 1)].channel >= 0)
+        {
+            toL = aux[(size_t) (o - 1)].l.data();
+            toR = aux[(size_t) (o - 1)].r.data();
+        }
         for (int i = 0; i < n; ++i)
         {
-            busL[route][i] += tempL[i];
-            busR[route][i] += tempR[i];
+            toL[i] += tempL[i];
+            toR[i] += tempR[i];
         }
         return true;
     };
@@ -579,7 +652,7 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
         if (injectStage == 6 && injectAtSample >= samplesRendered && injectAtSample < samplesRendered + n)
             tempL[0] = std::numeric_limits<float>::infinity();
        #endif
-        if (! addVoice (std::clamp (voice.getRoute(), 0, 2)))
+        if (! addVoice (std::clamp (voice.getRoute(), 0, 2), voice.getPad()))
             voice.kill();
     }
 
@@ -591,7 +664,7 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
             std::fill_n (tempL, n, 0.0f);
             std::fill_n (tempR, n, 0.0f);
             voice.render (blockSamples[(size_t) (slotFirstBreak + b)], breakSettings[(size_t) b], temp, n);
-            if (! addVoice (std::clamp (voice.getRoute(), 0, 2)))
+            if (! addVoice (std::clamp (voice.getRoute(), 0, 2), numPads + b))
                 voice.kill();
         }
 
@@ -739,6 +812,29 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
 
         outL[i] = dsp::safetyClip (l) * switchGain;
         outR[i] = dsp::safetyClip (r) * switchGain;
+        fadeTrack[(size_t) i] = switchGain;
+    }
+
+    // The per-lane outputs get the same preset fade, guard and safety clip as the main one.
+    for (auto& a : aux)
+    {
+        if (a.channel < 0)
+            continue;
+        bool bad = runaway;
+        for (int i = 0; i < n && ! bad; ++i)
+            bad = ! std::isfinite (a.l[(size_t) i]) || ! std::isfinite (a.r[(size_t) i]);
+        if (bad)
+        {
+            std::fill_n (a.l.data(), n, 0.0f);
+            std::fill_n (a.r.data(), n, 0.0f);
+            fault = fault || ! runaway;
+            continue;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            a.l[(size_t) i] = dsp::safetyClip (a.l[(size_t) i]) * fadeTrack[(size_t) i];
+            a.r[(size_t) i] = dsp::safetyClip (a.r[(size_t) i]) * fadeTrack[(size_t) i];
+        }
     }
 
     if (fault)
@@ -1075,6 +1171,7 @@ void LabX0AudioProcessor::flushForProgramChange() noexcept
     regulator.reset();
     std::fill (dryDelayL.begin(), dryDelayL.end(), 0.0f);
     std::fill (dryDelayR.begin(), dryDelayR.end(), 0.0f);
+    clearAuxDelays();
     dcInL = dcInR = dcOutL = dcOutR = 0.0f;
     for (int i = 0; i < P::count; ++i)
         smoothers[(size_t) i].reset (rawValue (i));
@@ -1098,7 +1195,19 @@ void LabX0AudioProcessor::recoverFromFault() noexcept
     regulator.reset();
     std::fill (dryDelayL.begin(), dryDelayL.end(), 0.0f);
     std::fill (dryDelayR.begin(), dryDelayR.end(), 0.0f);
+    clearAuxDelays();
     dcInL = dcInR = dcOutL = dcOutR = 0.0f;
+}
+
+void LabX0AudioProcessor::clearAuxDelays() noexcept
+{
+    for (auto& a : aux)
+    {
+        std::fill (a.delayL.begin(), a.delayL.end(), 0.0f);
+        std::fill (a.delayR.begin(), a.delayR.end(), 0.0f);
+        a.l.fill (0.0f);
+        a.r.fill (0.0f);
+    }
 }
 
 float LabX0AudioProcessor::blockPeak (const float* l, const float* r, int n) noexcept

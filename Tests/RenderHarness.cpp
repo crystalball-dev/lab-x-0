@@ -6,6 +6,7 @@
 //               [--jump "<at s>:<to quarter>"] [--library <dir>] [--specimens <dir>] [--pack <dir>]
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
 //               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
+//               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
 //   LabX0Render --analyze <file> [--estimate-only] [--host-bpm 174] [--sens 0.5] [--slicing 0]
@@ -935,7 +936,14 @@ int main (int argc, char* argv[])
     if (args.contains ("--free"))
         setParam (*proc, "run=1");
 
-    proc->setPlayConfigDetails (0, 2, sampleRate, prepareBlock);
+    // --multi-out renders every output bus, as a host that enabled them all; otherwise the main stereo output only,
+    // and lanes set to another output fall back to it.
+    const bool multiOut = args.contains ("--multi-out");
+    if (multiOut)
+        proc->setRateAndBufferSizeDetails (sampleRate, prepareBlock);
+    else
+        proc->setPlayConfigDetails (0, 2, sampleRate, prepareBlock);
+    const int outChannels = multiOut ? proc->getTotalNumOutputChannels() : 2;
     proc->prepareToPlay (sampleRate, prepareBlock);
 
     // One empty block, then wait for every sample and start clean.
@@ -1007,7 +1015,7 @@ int main (int argc, char* argv[])
     const int latency = args.contains ("--no-trim") ? 0 : proc->getLatencySamples();
     const int total = (int) (seconds * sampleRate);
     const int rendered = total + latency;
-    juce::AudioBuffer<float> raw (2, rendered);
+    juce::AudioBuffer<float> raw (outChannels, rendered);
     raw.clear();
     BlockTimer timer;
 
@@ -1023,7 +1031,7 @@ int main (int argc, char* argv[])
                 proc->setCurrentProgram (pc.index);
         }
 
-        juce::AudioBuffer<float> view (raw.getArrayOfWritePointers(), 2, pos, n);
+        juce::AudioBuffer<float> view (raw.getArrayOfWritePointers(), outChannels, pos, n);
         juce::MidiBuffer midi;
         for (const auto& e : events)
         {
@@ -1123,6 +1131,33 @@ int main (int argc, char* argv[])
     {
         std::cerr << "could not write " << outFile.getFullPathName() << std::endl;
         return 3;
+    }
+
+    if (multiOut)
+    {
+        const auto prefix = option (args, "--multi-out");
+        std::cout << "outputs=" << proc->getBusCount (false);
+        for (int k = 1; k < proc->getBusCount (false); ++k)
+        {
+            const int ch = proc->getChannelIndexInProcessBlockBuffer (false, k, 0);
+            if (ch < 0 || ch + 1 >= outChannels)
+                continue;
+            juce::AudioBuffer<float> auxOut (2, total);
+            for (int c = 0; c < 2; ++c)
+                auxOut.copyFrom (c, 0, raw, ch + c, latency, total);
+            const float pk = std::max (auxOut.getMagnitude (0, 0, total), auxOut.getMagnitude (1, 0, total));
+            int bad = 0;
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < total; ++i)
+                    bad += std::isfinite (auxOut.getSample (c, i)) ? 0 : 1;
+            if (pk <= 0.0f && bad == 0)
+                continue;
+            std::cout << " out" << (k + 1) << "_peak_db=" << juce::String (juce::Decibels::gainToDecibels (pk, -120.0f), 2)
+                      << " out" << (k + 1) << "_non_finite=" << bad;
+            if (prefix.isNotEmpty() && ! writeWav (juce::File (prefix + "_out" + juce::String (k + 1) + ".wav"), auxOut, sampleRate))
+                return 3;
+        }
+        std::cout << std::endl;
     }
 
     if (args.contains ("--roundtrip"))

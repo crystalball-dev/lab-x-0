@@ -195,6 +195,23 @@ private:
     labx0::dsp::PunchStage punch;
     labx0::dsp::Regulator regulator;
 
+    // Per-lane outputs (0.2.0). A lane set to output k (2..21) renders into aux[k - 2] instead of FULL, PUNCH or
+    // DRY: it leaves straight after its voices, before ANOMALY, PUNCH and the master section, and waits the plugin's
+    // latency so every output lines up. When the host has not enabled that output, the lane plays on the main one.
+    struct AuxOutput
+    {
+        std::array<float, labx0::controlBlock> l {}, r {};
+        std::vector<float> delayL, delayR;
+        int delayPos = 0;
+        int channel = -1;   // first channel of this output in the current block's buffer, -1 = not available
+    };
+    std::array<AuxOutput, labx0::numAuxOutputs> aux;
+    int auxDelayLength = 0;
+    std::array<int, labx0::numPads + labx0::numBreaks> laneOut {};
+    std::array<float, labx0::controlBlock> fadeTrack {};
+    void clearAuxDelays() noexcept;
+    static BusesProperties makeBuses();
+
     std::vector<float> busStorage;   // FULL, PUNCH, DRY x 2 channels x controlBlock
     std::vector<float> dryDelayL, dryDelayR;
     int dryDelayLength = 0, dryDelayPos = 0;
