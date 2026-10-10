@@ -54,7 +54,13 @@ public:
     labx0::SampleBank& getBank() noexcept           { return bank; }
     labx0::PatternStore& getPatterns() noexcept     { return patterns; }
 
-    void assignSample (int slot, const labx0::SampleRef& ref, double offsetSeconds = 0.0);
+    void assignSample (int slot, const labx0::SampleRef& ref, double offsetSeconds = 0.0, double lengthSeconds = 0.0);
+
+    // Slice points placed by hand (0.2.0); none = the automatic ones from SLICING and SENS. Sample positions in the
+    // slot's decoded audio, ascending, the first at 0. Cleared when the slot's sample changes. Message thread.
+    void setCustomSlices (int breakSlot, const std::vector<int>& positions);
+    std::vector<int> getCustomSlices (int breakSlot) const;
+    int getCustomSlicesVersion (int breakSlot) const noexcept;
     labx0::SampleRef getSampleRef (int slot) const  { return bank.getRef (slot); }
     labx0::SampleRef resolveKitRef (const juce::String& text) const;
     void previewSample (const labx0::SampleRef& ref);
@@ -133,6 +139,7 @@ private:
     struct SliceCache
     {
         uint64_t dataId = 0;
+        int custom = -1;     // version of the hand-placed slices in use, -1 = automatic
         int slicing = -1;
         float sens = -1.0f;
         double beats = -1.0;
@@ -185,6 +192,21 @@ private:
     std::array<int, labx0::numBreaks> breakCurrent {};
     std::array<int, labx0::numBreaks> breakMidiNote {};
     std::array<SliceCache, labx0::numBreaks> sliceCaches {};
+
+    struct CustomSlices
+    {
+        mutable juce::SpinLock lock;
+        std::array<int, labx0::maxSlices> pos {};
+        int count = 0;                      // 0 = automatic
+        std::atomic<int> version { 0 };
+    };
+    std::array<CustomSlices, labx0::numBreaks> customSlices;
+    struct CustomCopy
+    {
+        std::array<int, labx0::maxSlices> pos {};
+        int count = 0, version = -1;
+    };
+    std::array<CustomCopy, labx0::numBreaks> customCopy;   // the audio thread's copy
     std::vector<int> sliceScratch;
     labx0::dsp::PreviewVoice preview;
     std::array<labx0::dsp::PadSettings, labx0::numPads> padSettings {};

@@ -24,11 +24,14 @@ namespace labx0
         ~SampleBank() override;
 
         // Message thread.
-        int assign (int slot, const SampleRef& ref, double offsetSeconds = 0.0);   // returns the request generation
+        // Loads ref into slot from offsetSeconds, for lengthSeconds (0 = to the end, at most 120 s). Returns the
+        // request generation. A length makes the slot play one region of a file, as a slice exploded to a pad does.
+        int assign (int slot, const SampleRef& ref, double offsetSeconds = 0.0, double lengthSeconds = 0.0);
         void clearSlot (int slot);
         void reloadAll();
         SampleRef getRef (int slot) const;
         double getOffset (int slot) const;
+        double getLength (int slot) const;
         Status getStatus (int slot) const noexcept { return status[(size_t) slot].load(); }
         juce::String getStatusText (int slot) const;
 
@@ -42,7 +45,7 @@ namespace labx0
             double seconds = 0.0, fileSeconds = 0.0, offsetSeconds = 0.0;
             double bpm = 0.0, beats = 0.0;
             int tempoSource = 0;
-            std::vector<float> peaks;          // min, max pairs over 512 columns (mono)
+            std::vector<float> peaks;          // min, max pairs over 4096 columns (mono)
             std::vector<int> onsetPos;
             std::vector<float> onsetStrength;
         };
@@ -68,14 +71,14 @@ namespace labx0
             Status status = Status::failed;
             juce::String message;
         };
-        LoadResult decode (const juce::File& file, double offsetSeconds, bool analyse, double hostTempo,
+        LoadResult decode (const juce::File& file, double offsetSeconds, bool analyse, double hostTempo, double lengthSeconds,
                            const std::function<bool()>& shouldAbort);
 
     private:
         struct Request
         {
             SampleRef ref;
-            double offset = 0.0;
+            double offset = 0.0, length = 0.0;   // seconds; length 0 = to the end
         };
 
         void run() override;

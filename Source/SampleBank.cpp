@@ -72,14 +72,14 @@ namespace labx0
         retired.clear();
     }
 
-    int SampleBank::assign (int slot, const SampleRef& ref, double offsetSeconds)
+    int SampleBank::assign (int slot, const SampleRef& ref, double offsetSeconds, double lengthSeconds)
     {
         if (! juce::isPositiveAndBelow (slot, numSlots))
             return 0;
         int generation;
         {
             const juce::ScopedLock sl (lock);
-            requests[(size_t) slot] = { ref, std::max (0.0, offsetSeconds) };
+            requests[(size_t) slot] = { ref, std::max (0.0, offsetSeconds), std::max (0.0, lengthSeconds) };
             generation = requested[(size_t) slot].fetch_add (1) + 1;
         }
         notify();
@@ -108,6 +108,12 @@ namespace labx0
     {
         const juce::ScopedLock sl (lock);
         return requests[(size_t) slot].offset;
+    }
+
+    double SampleBank::getLength (int slot) const
+    {
+        const juce::ScopedLock sl (lock);
+        return requests[(size_t) slot].length;
     }
 
     juce::String SampleBank::getStatusText (int slot) const
@@ -223,7 +229,8 @@ namespace labx0
         setStatus (slot, Status::loading, "LOADING " + request.ref.displayName().toUpperCase());
 
         auto shouldAbort = [this, slot, generation] { return threadShouldExit() || requested[(size_t) slot].load() != generation; };
-        auto result = decode (file, request.offset, slot >= slotFirstBreak && slot < previewSlot, hostBpm.load(), shouldAbort);
+        auto result = decode (file, request.offset, slot >= slotFirstBreak && slot < previewSlot, hostBpm.load(), request.length,
+                              shouldAbort);
         if (shouldAbort())
             return;
 
@@ -237,6 +244,7 @@ namespace labx0
     }
 
     SampleBank::LoadResult SampleBank::decode (const juce::File& requestedFile, double offsetSeconds, bool analyse, double hostTempo,
+                                               double lengthSeconds,
                                                const std::function<bool()>& shouldAbort)
     {
         LoadResult result;
@@ -275,7 +283,10 @@ namespace labx0
         const double sr = reader->sampleRate;
         const juce::int64 total = reader->lengthInSamples;
         const auto offset = std::clamp ((juce::int64) (offsetSeconds * sr), (juce::int64) 0, std::max ((juce::int64) 0, total - 1));
-        const int length = (int) std::min (total - offset, (juce::int64) (maxSampleSeconds * sr));
+        auto maxLength = (juce::int64) (maxSampleSeconds * sr);
+        if (lengthSeconds > 0.0)
+            maxLength = std::min (maxLength, std::max ((juce::int64) 1, (juce::int64) std::llround (lengthSeconds * sr)));
+        const int length = (int) std::min (total - offset, maxLength);
         const int channels = (int) reader->numChannels;
         if (length <= 0)
         {
@@ -356,7 +367,7 @@ namespace labx0
         for (int i = 0; i < length; ++i)
             mono[(size_t) i] = 0.5f * (l[i] + r[i]);
 
-        constexpr int columns = 512;
+        constexpr int columns = 4096;   // fine enough to zoom into a break and place a slice
         overview->peaks.assign ((size_t) columns * 2, 0.0f);
         for (int c = 0; c < columns; ++c)
         {

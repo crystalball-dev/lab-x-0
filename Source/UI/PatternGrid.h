@@ -96,7 +96,10 @@ namespace labx0::ui
 
     // The selected lane's sample: waveform, slices and beat grid for breaks, the playing position, the status.
     // Clicking a break slice auditions it.
-    class WaveView final : public juce::Component, private juce::ChangeListener
+    // The selected lane's waveform. On a break lane it shows the slices and the beat grid and edits the slices: drag a
+    // marker to move it (it snaps to a nearby hit unless Shift is held), double-click to add or remove one, right-click
+    // for the menu. Click a slice to hear it. The mouse wheel zooms at the cursor, Shift + wheel scrolls.
+    class WaveView final : public juce::Component, public juce::SettableTooltipClient, private juce::ChangeListener
     {
     public:
         explicit WaveView (EditorContext& context);
@@ -104,9 +107,26 @@ namespace labx0::ui
         void refresh();
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override;
+        void mouseMove (const juce::MouseEvent&) override;
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     private:
+        juce::Range<double> visible() const noexcept;   // the samples on screen
         void changeListenerCallback (juce::ChangeBroadcaster*) override { refresh(); }
+        bool editable() const noexcept;
+        double positionAt (float x) const noexcept;
+        float xFor (double samplePosition) const noexcept;
+        int markerNear (float x) const noexcept;   // a movable marker (not slice 1's) within 4 px, or -1
+        int snapped (int samplePosition, bool free) const noexcept;
+        void commit (std::vector<int> positions);
+        void showMenu (const juce::MouseEvent&);
+
+        int dragIndex = -1, dragStart = 0;
+        bool custom = false;
+        double viewStart = 0.0, viewLength = 0.0;      // samples; length 0 = the whole sample
 
         EditorContext& ctx;
         std::shared_ptr<const SampleBank::Overview> overview;

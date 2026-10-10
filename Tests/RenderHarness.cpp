@@ -7,6 +7,8 @@
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
 //               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
 //               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
+//               [--slices 1=0,11952,23952]   (hand-placed slice starts for break slot A, in samples)
+// --pad and --break take <ref>[@offset[,length]] (seconds): a region of the file.
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
 //   LabX0Render --analyze <file> [--estimate-only] [--host-bpm 174] [--sens 0.5] [--slicing 0]
@@ -263,7 +265,7 @@ namespace
         }
         SampleBank bank (library);
         const double hostBpm = option (args, "--host-bpm", "120").getDoubleValue();
-        auto result = bank.decode (file, option (args, "--offset", "0").getDoubleValue(), true, hostBpm, nullptr);
+        auto result = bank.decode (file, option (args, "--offset", "0").getDoubleValue(), true, hostBpm, 0.0, nullptr);
         std::cout << "status=" << (int) result.status << " message=\"" << result.message << "\"";
         if (result.data == nullptr)
         {
@@ -307,7 +309,7 @@ namespace
             const auto path = line.trim();
             if (path.isEmpty())
                 continue;
-            auto result = bank.decode (juce::File (path), 0.0, true, 120.0, nullptr);
+            auto result = bank.decode (juce::File (path), 0.0, true, 120.0, 0.0, nullptr);
             if (result.data == nullptr)
             {
                 std::cout << "ERR	0		" << path << std::endl;
@@ -731,7 +733,7 @@ int main (int argc, char* argv[])
         {
             const auto& e = kitCatalog[i];
             const auto file = library.resolve ({ e.root, e.path });
-            auto result = bank.decode (file, 0.0, false, 120.0, nullptr);
+            auto result = bank.decode (file, 0.0, false, 120.0, 0.0, nullptr);
             const bool ok = result.data != nullptr && result.data->length > 0;
             ok ? ++ready : ++failed;
             std::cout << (ok ? "OK	" : "FAIL	") << e.name << "	";
@@ -755,7 +757,7 @@ int main (int argc, char* argv[])
             const double truth = line.fromFirstOccurrenceOf ("	", false, false).getDoubleValue();
             if (path.isEmpty())
                 continue;
-            auto result = bank.decode (juce::File (path), 0.0, false, truth > 0.0 ? truth : 120.0, nullptr);
+            auto result = bank.decode (juce::File (path), 0.0, false, truth > 0.0 ? truth : 120.0, 0.0, nullptr);
             if (result.data == nullptr)
             {
                 std::cout << "ERR	ERR	" << path << std::endl;
@@ -920,14 +922,24 @@ int main (int argc, char* argv[])
         proc->getPatterns().edit (a.upToFirstOccurrenceOf (":", false, false).getIntValue(), [&pat] (Pattern& p) { p = pat; });
     }
 
-    for (const auto& a : allOptions (args, "--pad"))
-        proc->assignSample (a.upToFirstOccurrenceOf ("=", false, false).getIntValue() - 1, refFrom (*proc, a.fromFirstOccurrenceOf ("=", false, false)));
-    for (const auto& a : allOptions (args, "--break"))
+    // <ref>[@offset[,length]] in seconds: a region of the file.
+    auto assignFrom = [&proc] (int slot, const juce::String& value)
     {
-        const auto value = a.fromFirstOccurrenceOf ("=", false, false);
-        const auto offset = value.contains ("@") ? value.fromLastOccurrenceOf ("@", false, false).getDoubleValue() : 0.0;
+        const auto where = value.contains ("@") ? value.fromLastOccurrenceOf ("@", false, false) : juce::String();
         const auto ref = value.contains ("@") ? value.upToLastOccurrenceOf ("@", false, false) : value;
-        proc->assignSample (slotFirstBreak + a.upToFirstOccurrenceOf ("=", false, false).getIntValue() - 1, refFrom (*proc, ref), offset);
+        proc->assignSample (slot, refFrom (*proc, ref), where.upToFirstOccurrenceOf (",", false, false).getDoubleValue(),
+                            where.contains (",") ? where.fromFirstOccurrenceOf (",", false, false).getDoubleValue() : 0.0);
+    };
+    for (const auto& a : allOptions (args, "--pad"))
+        assignFrom (a.upToFirstOccurrenceOf ("=", false, false).getIntValue() - 1, a.fromFirstOccurrenceOf ("=", false, false));
+    for (const auto& a : allOptions (args, "--break"))
+        assignFrom (slotFirstBreak + a.upToFirstOccurrenceOf ("=", false, false).getIntValue() - 1, a.fromFirstOccurrenceOf ("=", false, false));
+    for (const auto& a : allOptions (args, "--slices"))
+    {
+        std::vector<int> positions;
+        for (const auto& token : juce::StringArray::fromTokens (a.fromFirstOccurrenceOf ("=", false, false), ",", ""))
+            positions.push_back (token.getIntValue());
+        proc->setCustomSlices (a.upToFirstOccurrenceOf ("=", false, false).getIntValue() - 1, positions);
     }
 
     for (const auto& assignment : allOptions (args, "--set"))
@@ -1169,7 +1181,8 @@ int main (int argc, char* argv[])
         proc->getPatterns().read ([&patternsBefore] (const PatternBank& b) { for (const auto& p : b.patterns) patternsBefore << patternToText (p) << "\n--\n"; });
         juce::StringArray refsBefore;
         for (int s = 0; s < previewSlot; ++s)
-            refsBefore.add (proc->getSampleRef (s).toString() + "@" + juce::String (proc->getBank().getOffset (s), 3));
+            refsBefore.add (proc->getSampleRef (s).toString() + "@" + juce::String (proc->getBank().getOffset (s), 3)
+                            + "," + juce::String (proc->getBank().getLength (s), 3));
 
         auto other = std::make_unique<LabX0AudioProcessor>();
         other->setCurrentProgram ((proc->getCurrentProgram() + 1) % other->getNumPrograms());
@@ -1187,7 +1200,8 @@ int main (int argc, char* argv[])
             }
         for (int s = 0; s < previewSlot; ++s)
         {
-            const auto restored = other->getSampleRef (s).toString() + "@" + juce::String (other->getBank().getOffset (s), 3);
+            const auto restored = other->getSampleRef (s).toString() + "@" + juce::String (other->getBank().getOffset (s), 3)
+                                + "," + juce::String (other->getBank().getLength (s), 3);
             if (refsBefore[s] != restored)
             {
                 ++mismatches;
@@ -1199,6 +1213,12 @@ int main (int argc, char* argv[])
             ++mismatches;
             std::cout << "roundtrip mismatch: patterns" << std::endl;
         }
+        for (int b = 0; b < numBreaks; ++b)
+            if (proc->getCustomSlices (b) != other->getCustomSlices (b))
+            {
+                ++mismatches;
+                std::cout << "roundtrip mismatch: slices of break " << b << std::endl;
+            }
         std::cout << "roundtrip=" << (mismatches == 0 ? "PASS" : "FAIL") << " state_bytes=" << (int) state.getSize() << std::endl;
         if (mismatches != 0)
             return 4;
@@ -1206,6 +1226,8 @@ int main (int argc, char* argv[])
 
     if (args.contains ("--png"))
     {
+        if (args.contains ("--ui-lane"))
+            proc->uiSelectedLane.store (juce::jlimit (0, numLanes - 1, option (args, "--ui-lane").getIntValue()));
         std::unique_ptr<juce::AudioProcessorEditor> editor (proc->createEditor());
         if (args.contains ("--png-wait"))
         {

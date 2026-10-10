@@ -1080,6 +1080,35 @@ def t31_outputs(T):
              and main_level < -80, {"main_rms_db": round(main_level, 1)})
 
 
+def t32_slices_regions(T):
+    """Hand-placed slices (0.2.0) replace the automatic ones everywhere slices are used, and survive the state; a sample
+    slot can hold one region of a file (offset and length), as a slice exploded to a pad does."""
+    loop = fx("slicing/click_loop.wav")
+    base = INIT + ["--break", "1=" + loop, "--set", "b1_route=2", "--events", "61@0.2-0.9:127", "--seconds", "0.9"]
+    _, st_a = render("slices_auto", base)
+    wav, st = render("slices_custom", base + ["--slices", "1=0,23952,35952,59952,71952"])
+    m, sr = load_mono(wav)
+    found = detect_onsets(m, sr, rel=0.25, min_gap=0.05)
+    expected = [0.2 + (24000 - 23952) / 48000, 0.2 + (30000 - 23952) / 48000, 0.2 + (36000 - 23952) / 48000, 0.2 + (48000 - 23952) / 48000]
+    ok, _ = match_times(found, expected, 1.01 / sr)
+    T.record(32, "MIDI slice 2 plays the hand-placed slice 2 (sample 23952), not the automatic one", clean(st) and clean(st_a) and ok,
+             {"onsets_s": [round(t, 4) for t in found], "expected_s": [round(t, 4) for t in expected]})
+
+    wav, st = render("region_pad", INIT + ["--pad", "1=" + loop + "@0.5,0.1", "--set", "p01_route=2", "--events", "36@0.1-0.8:127",
+                                            "--seconds", "0.8"])
+    m, sr = load_mono(wav)
+    found = detect_onsets(m, sr, rel=0.25, min_gap=0.05)
+    after = rms_db(seg(np.diff(m), sr, 0.21, 0.79))
+    T.record(32, "a pad holding a region (0.5 s + 0.1 s of the click loop) plays only that region", clean(st) and len(found) == 1
+             and abs(found[0] - 0.1) <= 1.01 / sr and after < -90 and "0.10 S" in st.get("slot0", ""),
+             {"onsets_s": [round(t, 4) for t in found], "after_region_db": round(after, 1), "slot": st.get("slot0")})
+
+    _, st = render("slices_roundtrip", ["--preset", "3", "--seconds", "0.2", "--roundtrip", "--slices", "2=0,5000,9000",
+                                        "--pad", "5=" + loop + "@0.5,0.1"])
+    T.record(32, "state round trip keeps hand-placed slices and regions", st.get("roundtrip") == "PASS",
+             {"roundtrip": st.get("roundtrip"), "state_bytes": st.get("state_bytes")})
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 class Runner:
@@ -1118,7 +1147,7 @@ def main():
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
              (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
-             (31, t31_outputs)]
+             (31, t31_outputs), (32, t32_slices_regions)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

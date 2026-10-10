@@ -971,13 +971,44 @@ double LabX0AudioProcessor::loopBeats (int b, const dsp::SampleData* d) const no
 const LabX0AudioProcessor::SliceCache& LabX0AudioProcessor::slicesFor (int b, const dsp::SampleData* d) noexcept
 {
     auto& c = sliceCaches[(size_t) b];
+
+    // Hand-placed slices win: copied from the editor's list when it changed and is free (never waits).
+    auto& copy = customCopy[(size_t) b];
+    auto& custom = customSlices[(size_t) b];
+    if (const int v = custom.version.load (std::memory_order_acquire); v != copy.version)
+    {
+        const juce::SpinLock::ScopedTryLockType tl (custom.lock);
+        if (tl.isLocked())
+        {
+            copy.pos = custom.pos;
+            copy.count = custom.count;
+            copy.version = v;
+        }
+    }
+    if (copy.count > 0)
+    {
+        if (c.dataId == d->id && c.custom == copy.version)
+            return c;
+        c.dataId = d->id;
+        c.custom = copy.version;
+        c.slicing = -1;
+        c.count = 0;
+        for (int k = 0; k < copy.count; ++k)
+            if (copy.pos[(size_t) k] < d->length)
+                c.starts[(size_t) c.count++] = copy.pos[(size_t) k];
+        if (c.count == 0)
+            c.starts[(size_t) c.count++] = 0;
+        return c;
+    }
+
     const int slicing = std::clamp (choiceOf (P::brk (b, P::brSlicing)), 0, 3);
     const float sens = rawValue (P::brk (b, P::brSens));
     const double beats = loopBeats (b, d);
-    if (c.dataId == d->id && c.slicing == slicing && std::abs (c.sens - sens) < 1.0e-4f && std::abs (c.beats - beats) < 1.0e-6)
+    if (c.dataId == d->id && c.custom < 0 && c.slicing == slicing && std::abs (c.sens - sens) < 1.0e-4f && std::abs (c.beats - beats) < 1.0e-6)
         return c;
 
     c.dataId = d->id;
+    c.custom = -1;
     c.slicing = slicing;
     c.sens = sens;
     c.beats = beats;
@@ -1254,9 +1285,51 @@ void LabX0AudioProcessor::noteFault (int stage, float peak, bool fault) noexcept
 }
 
 //==============================================================================
-void LabX0AudioProcessor::assignSample (int slot, const SampleRef& ref, double offsetSeconds)
+void LabX0AudioProcessor::assignSample (int slot, const SampleRef& ref, double offsetSeconds, double lengthSeconds)
 {
-    bank.assign (slot, ref, offsetSeconds);
+    const bool changed = ref != bank.getRef (slot) || std::abs (offsetSeconds - bank.getOffset (slot)) > 1.0e-9
+                      || std::abs (lengthSeconds - bank.getLength (slot)) > 1.0e-9;
+    bank.assign (slot, ref, offsetSeconds, lengthSeconds);
+    if (changed && slot >= slotFirstBreak && slot < previewSlot)
+        setCustomSlices (slot - slotFirstBreak, {});
+}
+
+void LabX0AudioProcessor::setCustomSlices (int b, const std::vector<int>& positions)
+{
+    if (! juce::isPositiveAndBelow (b, numBreaks))
+        return;
+    std::vector<int> p;
+    for (const int x : positions)
+        if (x >= 0)
+            p.push_back (x);
+    std::sort (p.begin(), p.end());
+    p.erase (std::unique (p.begin(), p.end()), p.end());
+    if (! p.empty() && p.front() != 0)
+        p.insert (p.begin(), 0);
+    if ((int) p.size() > maxSlices)
+        p.resize ((size_t) maxSlices);
+
+    auto& cs = customSlices[(size_t) b];
+    {
+        const juce::SpinLock::ScopedLockType sl (cs.lock);
+        cs.count = (int) p.size();
+        std::copy (p.begin(), p.end(), cs.pos.begin());
+    }
+    cs.version.fetch_add (1, std::memory_order_release);
+}
+
+std::vector<int> LabX0AudioProcessor::getCustomSlices (int b) const
+{
+    if (! juce::isPositiveAndBelow (b, numBreaks))
+        return {};
+    const auto& cs = customSlices[(size_t) b];
+    const juce::SpinLock::ScopedLockType sl (cs.lock);
+    return std::vector<int> (cs.pos.begin(), cs.pos.begin() + cs.count);
+}
+
+int LabX0AudioProcessor::getCustomSlicesVersion (int b) const noexcept
+{
+    return juce::isPositiveAndBelow (b, numBreaks) ? customSlices[(size_t) b].version.load() : 0;
 }
 
 SampleRef LabX0AudioProcessor::resolveKitRef (const juce::String& text) const
@@ -1320,6 +1393,17 @@ double LabX0AudioProcessor::loopBeatsFor (int b, const SampleBank::Overview& ov)
 
 int LabX0AudioProcessor::computeSlices (int b, const SampleBank::Overview& ov, int* out, int maxOut) const
 {
+    if (const auto custom = getCustomSlices (b); ! custom.empty())
+    {
+        int n = 0;
+        for (const int p : custom)
+            if (p < ov.length && n < maxOut)
+                out[n++] = p;
+        if (n == 0 && maxOut > 0)
+            out[n++] = 0;
+        return n;
+    }
+
     const int slicing = std::clamp (choiceOf (P::brk (b, P::brSlicing)), 0, 3);
     const float sens = rawValue (P::brk (b, P::brSens));
     const double beats = loopBeatsFor (b, ov);
@@ -1415,6 +1499,8 @@ void LabX0AudioProcessor::applyPreset (int index)
 
     for (int slot = 0; slot < previewSlot; ++slot)
         bank.assign (slot, resolveKitRef (preset.samples[(size_t) slot]));
+    for (int b = 0; b < numBreaks; ++b)
+        setCustomSlices (b, {});
 
     patterns.editAll ([&preset] (PatternBank& bank)
     {
@@ -1446,7 +1532,17 @@ void LabX0AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     {
         state.setProperty ("slot" + juce::String (slot), bank.getRef (slot).toString(), nullptr);
         state.setProperty ("offset" + juce::String (slot), bank.getOffset (slot), nullptr);
+        if (bank.getLength (slot) > 0.0)
+            state.setProperty ("length" + juce::String (slot), bank.getLength (slot), nullptr);
     }
+    for (int b = 0; b < numBreaks; ++b)
+        if (const auto custom = getCustomSlices (b); ! custom.empty())
+        {
+            juce::StringArray list;
+            for (const int p : custom)
+                list.add (juce::String (p));
+            state.setProperty ("slices" + juce::String (b), list.joinIntoString (","), nullptr);
+        }
     juce::MemoryBlock blob;
     patterns.read ([&blob] (const PatternBank& bank) { blob = serialisePatterns (bank); });
     state.setProperty ("patterns", blob.toBase64Encoding(), nullptr);
@@ -1468,12 +1564,18 @@ void LabX0AudioProcessor::setStateInformation (const void* data, int sizeInBytes
     currentProgram = juce::jlimit (0, getNumPrograms() - 1, (int) tree.getProperty ("program", 0));
 
     std::array<SampleRef, previewSlot> refs;
-    std::array<double, previewSlot> offsets {};
+    std::array<double, previewSlot> offsets {}, lengths {};
     for (int slot = 0; slot < previewSlot; ++slot)
     {
         refs[(size_t) slot] = SampleRef::fromString (tree.getProperty ("slot" + juce::String (slot)).toString());
         offsets[(size_t) slot] = (double) tree.getProperty ("offset" + juce::String (slot), 0.0);
+        lengths[(size_t) slot] = (double) tree.getProperty ("length" + juce::String (slot), 0.0);
     }
+    std::array<std::vector<int>, numBreaks> slices;
+    for (int b = 0; b < numBreaks; ++b)
+        for (const auto& token : juce::StringArray::fromTokens (tree.getProperty ("slices" + juce::String (b)).toString(), ",", ""))
+            if (token.trim().isNotEmpty())
+                slices[(size_t) b].push_back (token.getIntValue());
 
     juce::MemoryBlock blob;
     const bool havePatterns = blob.fromBase64Encoding (tree.getProperty ("patterns").toString());
@@ -1484,8 +1586,11 @@ void LabX0AudioProcessor::setStateInformation (const void* data, int sizeInBytes
     apvts.replaceState (tree);
 
     for (int slot = 0; slot < previewSlot; ++slot)
-        if (refs[(size_t) slot] != bank.getRef (slot) || offsets[(size_t) slot] != bank.getOffset (slot))
-            bank.assign (slot, refs[(size_t) slot], offsets[(size_t) slot]);
+        if (refs[(size_t) slot] != bank.getRef (slot) || offsets[(size_t) slot] != bank.getOffset (slot)
+            || lengths[(size_t) slot] != bank.getLength (slot))
+            bank.assign (slot, refs[(size_t) slot], offsets[(size_t) slot], lengths[(size_t) slot]);
+    for (int b = 0; b < numBreaks; ++b)
+        setCustomSlices (b, slices[(size_t) b]);
 
     if (havePatterns)
     {

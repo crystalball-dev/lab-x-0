@@ -806,6 +806,8 @@ namespace labx0::ui
             const auto text = proc.getBank().getStatusText (lane);
             if (ov != overview || text != status)
             {
+                if (ov != overview)
+                    viewStart = viewLength = 0.0;
                 overview = ov;
                 status = text;
                 dirty = true;
@@ -813,12 +815,16 @@ namespace labx0::ui
             if (lane >= laneFirstBreak && overview != nullptr)
             {
                 const int b = lane - laneFirstBreak;
-                const auto key = juce::String ((juce::int64) overview->id) + "/" + juce::String (proc.apvts.getRawParameterValue (breakParamId (b, P::brSlicing))->load())
+                const auto key = juce::String ((juce::int64) overview->id) + "/" + juce::String (proc.getCustomSlicesVersion (b)) + "/"
+                               + juce::String (proc.apvts.getRawParameterValue (breakParamId (b, P::brSlicing))->load())
                                + "/" + juce::String (proc.apvts.getRawParameterValue (breakParamId (b, P::brSens))->load(), 3)
                                + "/" + juce::String (proc.apvts.getRawParameterValue (breakParamId (b, P::brBeats))->load());
-                if (key != sliceKey)
+                if (key != sliceKey && dragIndex < 0)
                 {
                     sliceKey = key;
+                    custom = ! proc.getCustomSlices (b).empty();
+                    setTooltip ("Slices: drag a marker to move it (Shift: no snapping to hits), double-click to add or remove one, "
+                                "right-click for the menu. Click a slice to hear it.");
                     slices.assign ((size_t) maxSlices, 0);
                     const int n = proc.computeSlices (b, *overview, slices.data(), maxSlices);
                     slices.resize ((size_t) n);
@@ -836,12 +842,16 @@ namespace labx0::ui
             {
                 slices.clear();
                 position = -1.0;
+                custom = false;
+                setTooltip ({});
             }
         }
         else
         {
             overview = nullptr;
             slices.clear();
+            custom = false;
+            setTooltip ({});
         }
 
         if (dirty)
@@ -877,54 +887,84 @@ namespace labx0::ui
         {
             const int columns = (int) overview->peaks.size() / 2;
             const float mid = area.getCentreY(), half = area.getHeight() * 0.45f;
+            const auto view = visible();
+            const double length = (double) std::max (1, overview->length);
+            auto inside = [&area] (float x) { return x >= area.getX() && x <= area.getRight(); };
 
             // Beat grid
             if (beats > 0.0 && beats < 256.0)
             {
                 for (int k = 0; k <= (int) std::ceil (beats); ++k)
                 {
-                    const float x = area.getX() + area.getWidth() * (float) ((double) k / beats);
-                    if (x > area.getRight())
-                        break;
+                    const float x = xFor ((double) k / beats * length);
+                    if (! inside (x))
+                        continue;
                     g.setColour (k % 4 == 0 ? Palette::dim.withAlpha (0.5f) : Palette::faint.brighter (0.2f));
                     g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
                 }
             }
 
+            // One line per pixel: the extremes of the columns behind it.
             g.setColour (tint.withAlpha (0.8f));
-            for (int c = 0; c < columns; ++c)
+            const int width = std::max (1, (int) area.getWidth());
+            for (int px = 0; px < width; ++px)
             {
-                const float x = area.getX() + area.getWidth() * (float) c / (float) columns;
-                const float lo = overview->peaks[(size_t) c * 2], hi = overview->peaks[(size_t) c * 2 + 1];
-                g.drawVerticalLine ((int) x, mid - hi * half, mid - lo * half + 1.0f);
+                const double s0 = view.getStart() + view.getLength() * px / width;
+                const double s1 = view.getStart() + view.getLength() * (px + 1) / width;
+                const int c0 = std::clamp ((int) (s0 / length * columns), 0, columns - 1);
+                const int c1 = std::clamp ((int) std::ceil (s1 / length * columns), c0 + 1, columns);
+                float lo = 0.0f, hi = 0.0f;
+                for (int c = c0; c < c1; ++c)
+                {
+                    lo = std::min (lo, overview->peaks[(size_t) c * 2]);
+                    hi = std::max (hi, overview->peaks[(size_t) c * 2 + 1]);
+                }
+                g.drawVerticalLine ((int) area.getX() + px, mid - hi * half, mid - lo * half + 1.0f);
             }
 
-            // Slices
+            // Slices: a handle on top of every marker that can move (slice 1 always starts the file)
             g.setFont (monoFont (9.0f, true));
             for (size_t k = 0; k < slices.size(); ++k)
             {
-                const float x = area.getX() + area.getWidth() * (float) slices[k] / (float) std::max (1, overview->length);
-                g.setColour (Palette::red.withAlpha (0.75f));
+                const float x = xFor ((double) slices[k]);
+                if (! inside (x))
+                    continue;
+                const bool held = (int) k == dragIndex;
+                g.setColour (held ? Palette::bright : Palette::red.withAlpha (0.75f));
                 g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
+                if (k > 0 && editable())
+                {
+                    juce::Path handle;
+                    handle.addTriangle (x - 4.0f, area.getY(), x + 4.0f, area.getY(), x, area.getY() + 6.0f);
+                    g.fillPath (handle);
+                }
                 g.drawText (juce::String ((int) k), juce::Rectangle<float> (x + 1.0f, area.getBottom() - 11.0f, 22.0f, 10.0f),
                             juce::Justification::centredLeft);
+            }
+            juce::String tags;
+            if (view.getLength() < length - 0.5)
+                tags << "ZOOM x" << juce::String (length / view.getLength(), 1) << "   ";
+            if (custom && lane >= laneFirstBreak)
+                tags << "EDITED SLICES";
+            if (tags.isNotEmpty())
+            {
+                g.setColour (Palette::red);
+                g.drawText (tags.trimEnd(), area.reduced (6.0f, 2.0f), juce::Justification::topRight, false);
             }
 
             // Pad start marker
             if (lane < numPads)
             {
                 const float start = ctx.processor.apvts.getRawParameterValue (padParamId (lane, P::padStart))->load();
-                if (start > 0.0005f)
+                if (const float x = xFor ((double) start * length); start > 0.0005f && inside (x))
                 {
-                    const float x = area.getX() + area.getWidth() * start;
                     g.setColour (Palette::red);
                     g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
                 }
             }
 
-            if (position >= 0.0 && overview->length > 0)
+            if (const float x = xFor (position); position >= 0.0 && overview->length > 0 && inside (x))
             {
-                const float x = area.getX() + area.getWidth() * (float) (position / (double) overview->length);
                 g.setColour (Palette::bright);
                 g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
             }
@@ -936,21 +976,209 @@ namespace labx0::ui
                     area.reduced (6.0f, 2.0f), juce::Justification::topLeft, true);
     }
 
+    bool WaveView::editable() const noexcept
+    {
+        const int lane = ctx.selectedLane;
+        return lane >= laneFirstBreak && lane < laneTime && overview != nullptr && overview->length > 1 && ! slices.empty();
+    }
+
+    juce::Range<double> WaveView::visible() const noexcept
+    {
+        const double length = (double) (overview != nullptr ? overview->length : 0);
+        if (viewLength <= 0.0 || viewLength >= length)
+            return { 0.0, std::max (1.0, length) };
+        const double start = std::clamp (viewStart, 0.0, length - viewLength);
+        return { start, start + viewLength };
+    }
+
+    double WaveView::positionAt (float x) const noexcept
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.0f);
+        const auto view = visible();
+        return view.getStart() + std::clamp ((double) (x - area.getX()) / (double) std::max (1.0f, area.getWidth()), 0.0, 1.0)
+                                 * view.getLength();
+    }
+
+    float WaveView::xFor (double samplePosition) const noexcept
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.0f);
+        const auto view = visible();
+        return area.getX() + area.getWidth() * (float) ((samplePosition - view.getStart()) / view.getLength());
+    }
+
+    void WaveView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+    {
+        const int lane = ctx.selectedLane;
+        if (lane >= laneTime || overview == nullptr || overview->length < 64)
+            return;
+        const double length = (double) overview->length;
+        const auto view = visible();
+        if (e.mods.isShiftDown() || std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
+        {
+            const float amount = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : -wheel.deltaY;
+            viewLength = view.getLength() >= length ? 0.0 : view.getLength();
+            viewStart = std::clamp (view.getStart() + (amount > 0.0f ? 0.25 : -0.25) * view.getLength(), 0.0, length - view.getLength());
+        }
+        else if (wheel.deltaY != 0.0f)
+        {
+            const double anchor = positionAt ((float) e.x);
+            const double fraction = (anchor - view.getStart()) / view.getLength();
+            const double newLength = std::clamp (view.getLength() * (wheel.deltaY > 0.0f ? 0.8 : 1.25),
+                                                 std::min (length, 0.02 * (double) overview->sampleRate), length);
+            viewLength = newLength >= length ? 0.0 : newLength;
+            viewStart = std::clamp (anchor - fraction * newLength, 0.0, length - newLength);
+        }
+        repaint();
+    }
+
+    int WaveView::markerNear (float x) const noexcept
+    {
+        int best = -1;
+        float bestDistance = 4.5f;
+        for (size_t k = 1; k < slices.size(); ++k)
+            if (const float d = std::abs (xFor ((double) slices[k]) - x); d < bestDistance)
+            {
+                bestDistance = d;
+                best = (int) k;
+            }
+        return best;
+    }
+
+    // A hit (onset candidate) within 6 ms pulls the marker onto it, unless `free`.
+    int WaveView::snapped (int samplePosition, bool free) const noexcept
+    {
+        if (free || overview == nullptr)
+            return samplePosition;
+        const int reach = (int) (0.006 * overview->sampleRate);
+        int best = samplePosition, bestDistance = reach + 1;
+        for (const int p : overview->onsetPos)
+            if (const int d = std::abs (p - samplePosition); d < bestDistance)
+            {
+                bestDistance = d;
+                best = p;
+            }
+        return best;
+    }
+
+    void WaveView::commit (std::vector<int> positions)
+    {
+        ctx.processor.setCustomSlices (ctx.selectedLane - laneFirstBreak, positions);
+        sliceKey.clear();
+        refresh();
+        repaint();
+    }
+
+    void WaveView::showMenu (const juce::MouseEvent& e)
+    {
+        const int marker = markerNear ((float) e.x);
+        const auto at = (int) positionAt ((float) e.x);
+        const int b = ctx.selectedLane - laneFirstBreak;
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("SLICES");
+        menu.addItem (1, "Add a slice here", (int) slices.size() < maxSlices);
+        menu.addItem (2, "Remove this slice", marker > 0);
+        menu.addItem (3, "Back to automatic slices (SLICING, SENS)", custom);
+        menu.addSeparator();
+        menu.addItem (5, "Show the whole sample (wheel zooms, Shift + wheel scrolls)", viewLength > 0.0);
+        juce::Component::SafePointer<WaveView> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                            [safe, marker, at, b] (int result)
+        {
+            if (safe == nullptr || result == 0)
+                return;
+            if (result == 5)
+            {
+                safe->viewStart = safe->viewLength = 0.0;
+                safe->repaint();
+                return;
+            }
+            auto positions = safe->slices;
+            if (result == 1)
+                positions.push_back (safe->snapped (at, false));
+            else if (result == 2 && marker > 0)
+                positions.erase (positions.begin() + marker);
+            else if (result == 3)
+                positions.clear();
+            if (result == 3)
+                safe->ctx.processor.setCustomSlices (b, {});
+            else
+                safe->ctx.processor.setCustomSlices (b, positions);
+            safe->sliceKey.clear();
+            safe->refresh();
+            safe->repaint();
+        });
+    }
+
     void WaveView::mouseDown (const juce::MouseEvent& e)
     {
         const int lane = ctx.selectedLane;
-        if (lane < laneFirstBreak || lane >= laneTime || overview == nullptr || slices.empty())
+        if (! editable())
         {
             if (lane < laneTime)
                 ctx.processor.audition (lane, 0.85f);
             return;
         }
-        const auto area = getLocalBounds().toFloat().reduced (2.0f);
-        const double pos = (double) (e.x - area.getX()) / (double) area.getWidth() * (double) overview->length;
+        if (e.mods.isPopupMenu())
+        {
+            showMenu (e);
+            return;
+        }
+        dragIndex = markerNear ((float) e.x);
+        if (dragIndex > 0)
+        {
+            dragStart = slices[(size_t) dragIndex];
+            repaint();
+            return;
+        }
+        const double pos = positionAt ((float) e.x);
         int slice = 0;
         while (slice + 1 < (int) slices.size() && (double) slices[(size_t) slice + 1] <= pos)
             ++slice;
         ctx.processor.auditionSlice (lane - laneFirstBreak, slice);
+    }
+
+    void WaveView::mouseDrag (const juce::MouseEvent& e)
+    {
+        if (dragIndex <= 0 || ! editable() || dragIndex >= (int) slices.size())
+            return;
+        // Between its neighbours, at least 5 ms from each.
+        const int gap = std::max (1, (int) (0.005 * overview->sampleRate));
+        const int lo = slices[(size_t) dragIndex - 1] + gap;
+        const int hi = (dragIndex + 1 < (int) slices.size() ? slices[(size_t) dragIndex + 1] : overview->length) - gap;
+        if (hi <= lo)
+            return;
+        const int p = snapped ((int) positionAt ((float) e.x), e.mods.isShiftDown());
+        slices[(size_t) dragIndex] = std::clamp (p, lo, hi);
+        repaint();
+    }
+
+    void WaveView::mouseUp (const juce::MouseEvent&)
+    {
+        // Only a marker that moved makes the slices hand-placed; a click on one changes nothing.
+        const bool moved = dragIndex > 0 && dragIndex < (int) slices.size() && slices[(size_t) dragIndex] != dragStart;
+        dragIndex = -1;
+        if (moved && editable())
+            commit (slices);
+        else
+            repaint();
+    }
+
+    void WaveView::mouseDoubleClick (const juce::MouseEvent& e)
+    {
+        if (! editable() || e.mods.isPopupMenu())
+            return;
+        auto positions = slices;
+        if (const int marker = markerNear ((float) e.x); marker > 0)
+            positions.erase (positions.begin() + marker);
+        else if ((int) positions.size() < maxSlices)
+            positions.push_back (snapped ((int) positionAt ((float) e.x), e.mods.isShiftDown()));
+        commit (positions);
+    }
+
+    void WaveView::mouseMove (const juce::MouseEvent& e)
+    {
+        setMouseCursor (editable() && markerNear ((float) e.x) > 0 ? juce::MouseCursor::LeftRightResizeCursor
+                                                                   : juce::MouseCursor::NormalCursor);
     }
 
     //==============================================================================
