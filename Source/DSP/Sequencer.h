@@ -67,9 +67,10 @@ namespace labx0::dsp
         }
 
         // Collects the events of [q0, q0 + n * qps). `current` and `queued` are the pattern indices: a queued
-        // pattern starts at the next boundary of the current one (at once when not running).
-        int collect (const PatternBank& bank, int& current, int& queued, bool running, double q0, double qps, int n,
-                     float swing, SeqEvent* out, int maxOut) noexcept
+        // pattern starts at the first boundary of the current one at or after the block start, and not before
+        // queuedFromQ (the moment a pattern note asked for it, in this block only); at once when not running.
+        int collect (const PatternBank& bank, int& current, int& queued, double queuedFromQ, bool running, double q0,
+                     double qps, int n, float swing, SeqEvent* out, int maxOut) noexcept
         {
             int count = 0;
             if (! running)
@@ -91,7 +92,14 @@ namespace labx0::dsp
                 wasRunning = true;
             }
 
-            const double q1 = q0 + qps * n;
+            // Block positions accumulate rounding. A block edge within a fifth of a sample of a boundary of the current
+            // pattern is moved onto it, so a bar line on a block edge belongs to exactly one block, the one it starts,
+            // whichever way the positions rounded (at 48 kHz and 64-sample blocks that happens at 120, 150, 160 BPM...).
+            // A fifth stays inside continuePosition's quarter, so the next block still continues from the moved edge.
+            const auto& startPattern = bank.patterns[(size_t) std::clamp (current, 0, numPatterns - 1)];
+            const double startPatternQ = startPattern.stepQuarters() * startPattern.length;
+            q0 = snapToBoundary (q0, startPatternQ, 0.2 * qps);
+            const double q1 = snapToBoundary (q0 + qps * n, startPatternQ, 0.2 * qps);
             expectedQ = q1;
             hasExpected = true;
 
@@ -101,19 +109,29 @@ namespace labx0::dsp
                 const auto& pat = bank.patterns[(size_t) std::clamp (current, 0, numPatterns - 1)];
                 const double patternQ = pat.stepQuarters() * pat.length;
                 double to = q1;
+                bool switching = false;
 
                 if (queued >= 0 && patternQ > 0.0)
                 {
-                    // The next boundary of the current pattern.
-                    const double k = std::floor ((from - patternStartQ) / patternQ + 1.0e-9) + 1.0;
+                    // The first boundary at or after both this range's start and the moment the switch was asked
+                    // for, compared exactly, as events are: it falls in exactly one block.
+                    const double earliest = std::max (from, queuedFromQ);
+                    double k = std::ceil ((earliest - patternStartQ) / patternQ);
+                    if (patternStartQ + k * patternQ < earliest)
+                        k += 1.0;
+                    else if (patternStartQ + (k - 1.0) * patternQ >= earliest)
+                        k -= 1.0;
                     const double boundary = patternStartQ + k * patternQ;
                     if (boundary < q1)
+                    {
                         to = boundary;
+                        switching = true;
+                    }
                 }
 
                 count = collectRange (pat, from, to, q0, qps, n, swing, out, count, maxOut);
 
-                if (to < q1)
+                if (switching)
                 {
                     current = queued;
                     queued = -1;
@@ -168,6 +186,16 @@ namespace labx0::dsp
         }
 
     private:
+        // The nearest boundary of the current pattern (same arithmetic as the switch, so the values are identical)
+        // when q lies within `tolerance` of it; q otherwise.
+        double snapToBoundary (double q, double patternQ, double tolerance) const noexcept
+        {
+            if (patternQ <= 0.0)
+                return q;
+            const double b = patternStartQ + std::round ((q - patternStartQ) / patternQ) * patternQ;
+            return std::abs (q - b) <= tolerance ? b : q;
+        }
+
         int collectRange (const Pattern& pat, double from, double to, double blockQ0, double qps, int n, float swing,
                           SeqEvent* out, int count, int maxOut) const noexcept
         {

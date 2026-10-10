@@ -278,11 +278,17 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         lastParamPattern = paramPattern;
         queuedPattern = paramPattern == currentPattern ? -1 : paramPattern;
     }
+    // A pattern note switches at the first boundary at or after its own position (half a sample of slack, so a
+    // note on the bar line takes that bar); the parameter and the buttons from the block start.
+    double queuedFromQ = std::numeric_limits<double>::lowest();
     for (const auto metadata : midi)
     {
         const auto m = metadata.getMessage();
         if (m.isNoteOn() && m.getNoteNumber() >= midiFirstPattern && m.getNoteNumber() < midiFirstPattern + numPatterns)
+        {
             queuedPattern = m.getNoteNumber() - midiFirstPattern;
+            queuedFromQ = q0 + ((double) metadata.samplePosition - 0.5) * qps;
+        }
     }
 
     // Editor requests: auditions and preview stops.
@@ -335,8 +341,8 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     blockQps = qps;
     blockRunning = running;
     const float swing = rawValue (P::swing);
-    const int numEvents = sequencer.collect (localBank, currentPattern, queuedPattern, running, q0, qps, numSamples, swing,
-                                             events.data(), (int) events.size());
+    const int numEvents = sequencer.collect (localBank, currentPattern, queuedPattern, queuedFromQ, running, q0, qps, numSamples,
+                                             swing, events.data(), (int) events.size());
 
     auto midiIt = midi.cbegin();
     const auto midiEnd = midi.cend();

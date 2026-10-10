@@ -77,8 +77,11 @@ DRY waits the same time, so all three routes stay aligned.
 - **Sequencer** (`DSP/Sequencer.h`): an event is a pure function of (step, lane), fired when its time falls in the
   block's window. Swing pushes odd steps late by 0.5 x swing x step; nudge moves a hit up to half a step either way;
   ratchets split the step evenly; probability uses a hash of (step, lane, pattern pass), so a render repeats
-  exactly. A pattern switch waits for the pattern's end. Host jumps and loops resynchronise; small ppq wobbles are
-  snapped to the previous block's end. RUN Free uses an internal clock at the last known tempo.
+  exactly. A queued pattern starts at the first boundary of the current pattern at or after its note (half a sample
+  of slack, so a note on the bar line takes that bar); the PATTERN parameter and buttons count from the block start.
+  A block edge within a fifth of a sample of a boundary is moved onto it, so a bar line on a block edge belongs to
+  exactly one block. Host jumps and loops resynchronise; small ppq wobbles are snapped to the previous block's end.
+  RUN Free uses an internal clock at the last known tempo.
 - **MIDI**: notes 36-51 play pads 1-16, 52-55 break slots A-D from their start, 60-91 slices 1-32 of the SLICE MIDI
   slot, 96-111 select a pattern at the next pattern boundary; CC1 adds to EMISSION.
 - **Breaks**: tempo comes from an ACID chunk, then the file name (an explicit "bpm" token, or a bare 2-3 digit
@@ -203,3 +206,32 @@ Bass Explorer loops, 808, FPC, RealDrumkits, Vintage), the ZONE KIT and the PACK
 - FL Studio cannot be scanned headlessly: after installing, the user scans plugins and does the listening pass.
 - The presets and the ZONE KIT pin paths inside STALKER SPECIMENS and FL's `stalker sounds`; `docs/PINNED_PATHS.md`
   lists them for the library's maintenance tools.
+
+## 0.1.1: queued pattern switches on block-edge bar lines
+
+Reported by the session writing the user guide, with a reproduction through `LabX0Render`: a pattern queued by MIDI
+note (or by the PATTERN parameter or buttons, which share the queue) could start one or more patterns late, or never.
+It happened when bar lines fell exactly on audio block starts: at 48 kHz with 64-sample blocks (the user's FL setup)
+whenever 180000 / BPM is a whole number (90, 100, 120, 125, 144, 150, 160, 180 BPM...), and at other tempos with other
+block sizes. 0.1.0 rendered 21 of 60 such cases wrong, including "never" at 120 BPM.
+
+`StepSequencer::collect` took the boundary strictly after the block start, with a 1e-9 tolerance, and used it only if
+it came before the block end. Block positions are chained sums, so at an edge that is a bar line the position rounds a
+hair above or below the boundary. When it rounded low, the block ending there saw the boundary as not yet reached and
+the block starting there saw it as already passed; each bar line was a coin toss, so several could be missed in a
+row. Separately, a note exactly on a bar line was always one pattern late, because the boundary at the block start
+never counted.
+
+The fix (a tolerance alone would have dropped the new pattern's downbeat when the position rounded the other way):
+
+- A block edge within a fifth of a sample of a boundary of the current pattern is moved onto it, with the same
+  arithmetic as the boundary itself, so the boundary belongs to exactly one block: the one it starts.
+- The switch goes to the first boundary at or after the block start, compared exactly, as events are.
+- A pattern note counts from its own position in the block, less half a sample: on the bar line it takes that bar,
+  2 ms after it the next. The constraint applies only in the note's block, so a host loop that jumps back still
+  starts the queued pattern at the loop start.
+
+Test 30 renders the switch at 16 tempos (12 at 48 kHz with 64- and 512-sample blocks, 4 at 44.1 kHz with 64), with
+notes mid-bar, on bar lines and 2 ms after them (168 cases), plus a queued pattern across a host loop. Run against
+0.1.0's sequencer, both of its checks fail. With the fix the full suite passes: 30 tests, 73 checks, pluginval 10.
+

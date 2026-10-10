@@ -8,7 +8,8 @@ packs (the plugin's default USER folder, or --library) or the STALKER SPECIMENS 
 missing. Writes WAVs to Tests/out (ignored by git) and a JSON report to build/test-report.json.
 
 Test numbers follow LAB_X0_HANDOFF.md section 5; docs/DESIGN.md says where a test was redefined. Tests 28 and 29 are
-the LAB-X series regression checks: the runaway guard, and a long idle with the transport playing.
+the LAB-X series regression checks: the runaway guard, and a long idle with the transport playing. Test 30 guards the
+0.1.1 fix: queued pattern switches on bar lines that fall on block edges.
 """
 
 import argparse
@@ -986,6 +987,49 @@ def t29_idle(T, presets):
              not worst and clean(st) and quiet, {"failures": worst, "stopped_tail_peak_db": st.get("tail_peak_db")})
 
 
+def switch_bar(name, bpm, sr, block, note_bars, bars=8, jump=None):
+    """Pattern 1 hits once per bar, pattern 2 twice; MIDI note 97 (pattern 2) at note_bars bars from the start.
+    Returns the first bar (1-based) with two hits, and the hits per bar."""
+    bar = 240.0 / bpm
+    t = note_bars * bar
+    extra = ["--jump", jump] if jump else []
+    wav, st = render(name, INIT + ["--pad", "1=" + fx("click.wav"), "--set", "p01_route=2",
+                                   "--pat", "0:" + pat(["p1:x..............."]), "--pat", "1:" + pat(["p1:x.......x......."]),
+                                   "--events", f"97@{t:.6f}-{t + 0.01:.6f}:100", "--bpm", bpm, "--sr", sr, "--block", block,
+                                   "--seconds", f"{bars * bar:.6f}"] + extra)
+    m, fs = load_mono(wav)
+    hits = detect_onsets(m, fs, rel=0.25, min_gap=0.05)
+    per_bar = [sum(1 for x in hits if k * bar - 0.002 <= x < (k + 1) * bar - 0.002) for k in range(bars)]
+    first = next((k + 1 for k, n in enumerate(per_bar) if n == 2), None)
+    return first, per_bar, clean(st)
+
+
+def t30_pattern_switch(T):
+    """A queued pattern starts at the first bar line at or after its note, at tempos whose bar lines fall exactly on
+    block edges (at 48 kHz and 64-sample blocks: 90, 100, 120, 125, 144, 150, 160, 180 BPM) and at tempos where they
+    do not. 0.1.0 switched late, or never, when the accumulated block position rounded low at such an edge."""
+    positions = [(0.5, 2), (1.0, 2), (1.5, 3), (2.0, 3), (3.0, 4)]   # (note position in bars, expected bar, 1-based)
+    cases = [(bpm, 48000, block) for bpm in (90, 100, 120, 125, 144, 150, 160, 170, 172, 174, 175, 180) for block in (64, 512)]
+    cases += [(bpm, 44100, 64) for bpm in (105, 125, 147, 175)]
+    wrong, total = [], 0
+    for bpm, sr, block in cases:
+        bar = 240.0 / bpm
+        for pos, expected in positions + [(2.0 + 0.002 / bar, 4)]:   # last: a note 2 ms after a bar line waits for the next
+            first, per_bar, ok = switch_bar("switch", bpm, sr, block, pos)
+            total += 1
+            if first != expected or not ok:
+                wrong.append((bpm, sr, block, round(pos, 4), expected, first))
+    T.record(30, f"queued pattern switches on the right bar ({total} cases: 16 tempos, 2 rates, 2 block sizes)", not wrong,
+             {"wrong": wrong[:10], "cases": total})
+    loops = []
+    for bpm, block in ((120, 64), (120, 512), (174, 64)):
+        bar = 240.0 / bpm
+        first, per_bar, ok = switch_bar("switch_loop", bpm, 48000, block, 1.5, bars=6, jump=f"{2 * bar:.6f}:0")
+        if first != 3 or not ok:
+            loops.append((bpm, block, first, per_bar))
+    T.record(30, "a pattern queued before the host loops back starts at the loop start", not loops, {"wrong": loops})
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 class Runner:
@@ -1023,7 +1067,7 @@ def main():
              (13, t13_categories), (14, t14_settings), (15, t15_kit), (16, t16_tempo), (17, t17_slicing), (18, t18_break_fit),
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
-             (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets))]
+             (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue
