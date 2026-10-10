@@ -1,0 +1,32 @@
+# Build output
+build/
+out/
+build-log.txt
+build-full.txt
+Tests/out/
+Tests/fixtures/
+__pycache__/
+*.pyc
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Audio never goes into this repository. Every sample is read from the user's own disk at runtime.
+*.ogg
+*.wav
+*.flac
+*.mp3
+*.aif
+*.aiff
+*.m4a
+*.opus
+*.wv
+*.wem
+*.rx2
+
+# Host projects and private planning notes with machine-specific paths
+*.flp
+LAB_X0_HANDOFF.md
