@@ -9,6 +9,7 @@
 //               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
 //               [--slices 1=0,11952,23952]   (hand-placed slice starts for break slot A, in samples)
 //               [--explode 1[:5]]            (break A's components to pads 1.. (or 5..) and the first empty pattern)
+//               [--render <folder> [--render-what 0|1|2] [--render-lane L] [--render-passes N] [--render-bpm X]]
 // --pad and --break take <ref>[@offset[,length]] (seconds): a region of the file.
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
@@ -987,6 +988,41 @@ int main (int argc, char* argv[])
         proc->getBank().waitUntilSettled (120000);
     }
 
+    if (args.contains ("--render"))
+    {
+        // --render <folder> [--render-what 0 mix | 1 mix and stems | 2 one lane] [--render-lane 1..20] [--render-passes N]
+        // [--render-bpm X]: what the RENDER panel does, all at once.
+        LabX0AudioProcessor::RenderRequest request;
+        request.folder = juce::File (option (args, "--render"));
+        request.what = option (args, "--render-what", "0").getIntValue();
+        request.lane = option (args, "--render-lane", "1").getIntValue() - 1;
+        request.passes = option (args, "--render-passes", "1").getIntValue();
+        request.bpm = option (args, "--render-bpm", juce::String (playHead.bpm)).getDoubleValue();
+        request.pattern = proc->getEditPattern();
+        request.sampleRate = sampleRate;
+        const auto status = proc->renderNow (request);
+        std::cout << "render=\"" << status.text << "\" render_files=" << status.files.size() << std::endl;
+        for (const auto& f : status.files)
+        {
+            std::cout << "  file " << f.getFileName();
+            if (f.hasFileExtension ("wav"))
+            {
+                juce::AudioFormatManager formats;
+                formats.registerBasicFormats();
+                if (std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f)); reader != nullptr)
+                {
+                    juce::Range<float> range[2];
+                    reader->readMaxLevels (0, reader->lengthInSamples, range, 2);
+                    const float pk = std::max ({ std::abs (range[0].getStart()), std::abs (range[0].getEnd()), std::abs (range[1].getStart()),
+                                                 std::abs (range[1].getEnd()) });
+                    std::cout << "  samples " << reader->lengthInSamples << "  peak_db " << juce::String (juce::Decibels::gainToDecibels (pk, -120.0f), 2);
+                }
+            }
+            std::cout << std::endl;
+        }
+        return status.files.isEmpty() ? 1 : 0;
+    }
+
     if (args.contains ("--fuzz"))
     {
         const int result = runFuzz (*proc, playHead, sampleRate, blockSize, seconds, option (args, "--seed", "1").getIntValue(),
@@ -1245,7 +1281,19 @@ int main (int argc, char* argv[])
     {
         if (args.contains ("--ui-lane"))
             proc->uiSelectedLane.store (juce::jlimit (0, numLanes - 1, option (args, "--ui-lane").getIntValue()));
+        if (args.contains ("--png-render"))
+        {
+            // A real background render, finished during --png-wait, shown in the RENDER panel.
+            LabX0AudioProcessor::RenderRequest request;
+            request.what = 1;
+            request.pattern = proc->getEditPattern();
+            request.folder = juce::File (option (args, "--png-render"));
+            proc->startRender (request);
+        }
         std::unique_ptr<juce::AudioProcessorEditor> editor (proc->createEditor());
+        if (args.contains ("--png-render"))
+            if (auto* labEditor = dynamic_cast<LabX0AudioProcessorEditor*> (editor.get()))
+                labEditor->showRenderPanel();
         if (args.contains ("--png-wait"))
         {
             // Let the browser's timer, the library scan and the search callbacks run, as they would in a host.

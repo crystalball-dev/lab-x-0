@@ -9,6 +9,7 @@
 #include "UI/Browser.h"
 #include "UI/LanePanel.h"
 #include "UI/SideViews.h"
+#include "UI/RenderPanel.h"
 
 class LabX0AudioProcessorEditor final : public juce::AudioProcessorEditor,
                                         public juce::DragAndDropContainer,
@@ -23,6 +24,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
 
     // Pulls meters, playheads and status from the processor. Public so the render harness can call it.
+    void showRenderPanel() { renderPanel.setVisible (true); renderPanel.toFront (false); }
     void refreshFromProcessor();
 
     static constexpr int editorWidth = 1400;
@@ -68,6 +70,8 @@ private:
 
     juce::ComboBox presetBox;
     juce::TextButton prevButton { "<" }, nextButton { ">" };
+    juce::TextButton renderButton { "RENDER" };
+    labx0::ui::RenderPanel renderPanel { context };
     labx0::ui::EmissionGauge gauge;
     labx0::ui::Dosimeter dosimeter;
     labx0::ui::ScopeView scopeView;

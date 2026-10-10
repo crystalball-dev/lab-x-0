@@ -1149,6 +1149,104 @@ def t33_explode(T):
               "worst_ms": round(max(errors), 2), "level_db": round(level, 2)})
 
 
+def midi_note_ons(path):
+    """(tick, note, velocity) of every note-on in a standard MIDI file, and its ticks per quarter."""
+    data = pathlib.Path(path).read_bytes()
+    if data[:4] != b"MThd":
+        return [], 0
+    division = struct.unpack(">H", data[12:14])[0]
+    pos, notes = 14, []
+    while pos + 8 <= len(data):
+        kind, size = data[pos:pos + 4], struct.unpack(">I", data[pos + 4:pos + 8])[0]
+        body, pos = data[pos + 8:pos + 8 + size], pos + 8 + size
+        if kind != b"MTrk":
+            continue
+        i, tick, status = 0, 0, 0
+        while i < len(body):
+            delta = 0
+            while True:
+                b = body[i]
+                i += 1
+                delta = (delta << 7) | (b & 0x7F)
+                if b < 0x80:
+                    break
+            tick += delta
+            if body[i] >= 0x80:
+                status = body[i]
+                i += 1
+            if status == 0xFF:
+                i += 1
+                length = 0
+                while True:
+                    b = body[i]
+                    i += 1
+                    length = (length << 7) | (b & 0x7F)
+                    if b < 0x80:
+                        break
+                i += length
+            elif status in (0xF0, 0xF7):
+                length = body[i]
+                i += 1 + length
+            else:
+                kind_ = status & 0xF0
+                if kind_ in (0xC0, 0xD0):
+                    i += 1
+                else:
+                    a, b = body[i], body[i + 1]
+                    i += 2
+                    if kind_ == 0x90 and b > 0:
+                        notes.append((tick, a, b))
+    return notes, division
+
+
+def t34_render(T):
+    """RENDER (0.2.0): a pattern rendered by a second engine is what the engine plays; stems sum to the mix and are as
+    long as it; the MIDI file holds the hits as played."""
+    common = INIT + ["--bpm", BPM, "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"),
+                     "--pattern", pat(["p1:x...x...x...x...", "p2:..x...x...x...x."])]
+    folder = OUT / "render_stems"
+    if folder.exists():
+        shutil.rmtree(folder)
+    _, st = render("render_cmd", common + ["--render", folder, "--render-what", "1", "--render-passes", "2"])
+    files = sorted(f.name for f in folder.glob("*")) if folder.exists() else []
+    expected = ["Pattern 01 mix.wav", "Pattern 01 pad 01 click.wav", "Pattern 01 pad 02 snare.wav", "Pattern 01.mid"]
+    wav, _ = render("render_direct", common + ["--seconds", "2.75"])
+    direct, sr = load(wav)
+    if files != expected:
+        T.record(34, "a mix-and-stems render writes the mix, one stem per lane and a MIDI file", False, {"files": files, "out": st.get("render")})
+        return
+    mix, _ = load(folder / "Pattern 01 mix.wav")
+    a, _ = load(folder / "Pattern 01 pad 01 click.wav")
+    b, _ = load(folder / "Pattern 01 pad 02 snare.wav")
+    n = min(len(mix), len(direct))
+    same = float(np.abs(mix[:n] - direct[:n]).max())
+    stems = float(np.abs(a + b - mix).max())
+    T.record(34, "the rendered mix is what the engine plays (direct render, 24-bit) and the stems sum to it", same < 3e-7 and stems < 3e-7
+             and len(a) == len(b) == len(mix), {"mix_vs_direct": same, "stems_vs_mix": stems, "lengths": [len(mix), len(a), len(b)],
+                                                "body_s": round(8 * BEAT, 4), "file_s": round(len(mix) / sr, 4)})
+
+    notes, division = midi_note_ons(folder / "Pattern 01.mid")
+    times = sorted((round(t / division * 60.0 / BPM, 4), note) for t, note, _ in notes)
+    want = sorted([(round(k * 4 * STEP, 4), 36) for k in range(8)] + [(round((2 + 4 * k) * STEP, 4), 37) for k in range(8)])
+    worst = max((abs(x[0] - y[0]) for x, y in zip(times, want)), default=1.0)
+    T.record(34, "the MIDI file holds every hit as played: pads on notes 36 and 37 at their steps", len(times) == len(want)
+             and all(x[1] == y[1] for x, y in zip(times, want)) and worst < 0.0005,
+             {"notes": len(times), "worst_ms": round(1000 * worst, 3), "division": division})
+
+    one = OUT / "render_lane"
+    if one.exists():
+        shutil.rmtree(one)
+    render("render_lane_cmd", common + ["--render", one, "--render-what", "2", "--render-lane", "2"])
+    lane_files = sorted(f.name for f in one.glob("*.wav")) if one.exists() else []
+    ok = lane_files == ["Pattern 01 pad 02 snare.wav"]
+    if ok:
+        x, sr = load_mono(one / lane_files[0])
+        # The snare is a noise burst: its onset reads a few samples after the hit, and it can cross the threshold twice.
+        found = detect_onsets(x, sr, rel=0.25, min_gap=0.1)
+        ok, _ = match_times(found, [(2 + 4 * k) * STEP for k in range(4)], 0.00025)
+    T.record(34, "a selected-lane render holds that lane only", ok, {"files": lane_files})
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 class Runner:
@@ -1187,7 +1285,7 @@ def main():
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
              (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
-             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode)]
+             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode), (34, t34_render)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

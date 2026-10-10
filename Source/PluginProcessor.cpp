@@ -858,6 +858,8 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
 //==============================================================================
 void LabX0AudioProcessor::handleSeqEvent (const dsp::SeqEvent& e) noexcept
 {
+    if (recordHits != nullptr)   // an offline renderer writing the MIDI file
+        recordHits->push_back ({ engineClock, e.lane, e.slice, e.gateSamples, e.velocity });
     if (e.lane < numPads)
         triggerPad (e.lane, e.velocity, e.pitch, e.gateSamples);
     else if (e.lane < laneTime)
@@ -1516,6 +1518,290 @@ void LabX0AudioProcessor::explodeBreak (int b, int firstPad, bool everySlice, st
                 done (text);
         });
     });
+}
+
+//==============================================================================
+namespace
+{
+    // A transport that plays from beat 0 at a fixed tempo, and stops for the tails: the renderer's host.
+    struct RenderPlayHead final : public juce::AudioPlayHead
+    {
+        double bpm = 120.0, sampleRate = 48000.0;
+        juce::int64 position = 0;
+        bool playing = true;
+
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (bpm);
+            info.setTimeInSamples (position);
+            info.setPpqPosition ((double) position / sampleRate * bpm / 60.0);
+            info.setIsPlaying (playing);
+            return info;
+        }
+    };
+
+    bool writeWav24 (const juce::File& file, const juce::AudioBuffer<float>& buffer, double sampleRate)
+    {
+        file.deleteFile();
+        std::unique_ptr<juce::OutputStream> stream (file.createOutputStream());
+        if (stream == nullptr)
+            return false;
+        juce::WavAudioFormat wav;
+        auto options = juce::AudioFormatWriterOptions().withSampleRate (sampleRate).withNumChannels (buffer.getNumChannels()).withBitsPerSample (24);
+        if (auto writer = wav.createWriterFor (stream, options))
+            return writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+        return false;
+    }
+
+    // Everything after the pattern's own length that is quieter than -90 dBFS goes.
+    int trimmedLength (const juce::AudioBuffer<float>& buffer, int atLeast)
+    {
+        int last = atLeast;
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const float* d = buffer.getReadPointer (ch);
+            for (int i = buffer.getNumSamples() - 1; i >= atLeast; --i)
+                if (std::abs (d[i]) > 3.2e-5f)
+                {
+                    last = std::max (last, i + 1);
+                    break;
+                }
+        }
+        return std::min (buffer.getNumSamples(), last);
+    }
+}
+
+LabX0AudioProcessor::RenderRequest LabX0AudioProcessor::resolveRequest (const RenderRequest& request) const
+{
+    auto r = request;
+    r.pattern = juce::jlimit (0, numPatterns - 1, r.pattern);
+    r.passes = juce::jlimit (1, 64, r.passes);
+    if (r.bpm <= 1.0)
+        r.bpm = meters.bpm.load() > 1.0f ? (double) meters.bpm.load() : 120.0;   // the tempo the host last reported
+    if (r.sampleRate <= 0.0)
+        r.sampleRate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    if (r.folder == juce::File())
+        r.folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("LAB X-0").getChildFile ("Renders")
+                       .getChildFile (juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M%S") + " Pattern "
+                                      + juce::String (r.pattern + 1).paddedLeft ('0', 2));
+    return r;
+}
+
+juce::AudioBuffer<float> LabX0AudioProcessor::renderPass (int pattern, double sampleRate, double bpm, int body, int length,
+                                                          std::atomic<float>& progress, float from, float to)
+{
+    RenderPlayHead head;
+    head.bpm = bpm;
+    head.sampleRate = sampleRate;
+    setPlayHead (&head);
+    constexpr int block = 512;
+    if (auto* p = apvts.getParameter ("pattern"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) pattern));
+    if (auto* p = apvts.getParameter ("run"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) Choice::runHost));
+    setPlayConfigDetails (0, 2, sampleRate, block);
+    prepareToPlay (sampleRate, block);
+    programChangePending.store (false);
+    switchState = SwitchState::idle;
+    switchGain = 1.0f;
+    sequencer.reset();
+
+    const int latency = getLatencySamples();
+    juce::AudioBuffer<float> out (2, length);
+    out.clear();
+    juce::AudioBuffer<float> chunk (2, block);
+    juce::MidiBuffer midi;
+    // The pattern plays for `body` samples; then the transport stops (a block ends exactly there, so no hit of the
+    // next pass slips in) and voices and effects ring out.
+    int written = -latency;
+    for (juce::int64 pos = 0; written < length;)
+    {
+        int step = block;
+        if (pos < body && pos + block > body)
+            step = (int) (body - pos);
+        head.position = pos;
+        head.playing = pos < body;
+        juce::AudioBuffer<float> view (chunk.getArrayOfWritePointers(), 2, step);
+        processBlock (view, midi);
+        const int skip = std::max (0, -written);
+        const int n = std::min (step - skip, length - std::max (0, written));
+        if (n > 0)
+            for (int ch = 0; ch < 2; ++ch)
+                out.copyFrom (ch, std::max (0, written), view, ch, skip, n);
+        pos += step;
+        written += step;
+        progress.store (from + (to - from) * (float) std::clamp ((double) written / (double) length, 0.0, 1.0));
+    }
+    setPlayHead (nullptr);
+    releaseResources();
+    return out;
+}
+
+LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderAll (const RenderRequest& request, double sampleRate, double bpm,
+                                                                  std::atomic<float>& progress)
+{
+    RenderStatus status;
+    status.folder = request.folder;
+    if (! bank.waitUntilSettled (120000))
+    {
+        status.text = "SAMPLES DID NOT LOAD";
+        return status;
+    }
+
+    Pattern pattern;
+    patterns.read ([&pattern, &request] (const PatternBank& pb) { pattern = pb.patterns[(size_t) request.pattern]; });
+    const double patternQuarters = pattern.stepQuarters() * pattern.length;
+    // Rounded down: the transport stops just before the next pass's downbeat, never a fraction of a sample after it.
+    const int body = std::max (1, (int) std::floor (request.passes * patternQuarters * 60.0 / bpm * sampleRate));
+    const int length = body + (int) (4.0 * sampleRate);   // room for the tails, trimmed after
+
+    // Jobs: the mix, then stems (lanes with steps and a sample), or one lane.
+    std::vector<int> solos { -1 };
+    if (request.what == 1)
+    {
+        for (int lane = 0; lane < laneTime; ++lane)
+            if (pattern.laneHasContent (lane) && ! pattern.lanes[(size_t) lane].mute && ! bank.getRef (lane).isEmpty())
+                solos.push_back (lane);
+    }
+    else if (request.what == 2)
+        solos = { juce::jlimit (0, laneTime - 1, request.lane) };
+
+    if (! request.folder.createDirectory())
+    {
+        status.text = "COULD NOT CREATE " + request.folder.getFullPathName();
+        return status;
+    }
+    const auto prefix = "Pattern " + juce::String (request.pattern + 1).paddedLeft ('0', 2);
+    std::vector<RecordedHit> hits;
+    int common = -1;   // every stem as long as the mix, so they line up in the arrangement
+    for (size_t j = 0; j < solos.size(); ++j)
+    {
+        const int solo = solos[j];
+        patterns.edit (request.pattern, [&pattern, solo] (Pattern& p)
+        {
+            for (int lane = 0; lane < laneTime; ++lane)
+                p.lanes[(size_t) lane].mute = (uint8_t) (solo >= 0 ? (lane != solo ? 1 : 0) : pattern.lanes[(size_t) lane].mute);
+        });
+        recordHits = solo < 0 ? &hits : nullptr;
+        hits.clear();
+        auto audio = renderPass (request.pattern, sampleRate, bpm, body, length, progress, (float) j / (float) solos.size(),
+                                 (float) (j + 1) / (float) solos.size());
+        recordHits = nullptr;
+        const int keep = common > 0 ? std::min (common, audio.getNumSamples()) : trimmedLength (audio, body);
+        if (solo < 0)
+            common = keep;
+        juce::AudioBuffer<float> trimmed (2, keep);
+        for (int ch = 0; ch < 2; ++ch)
+            trimmed.copyFrom (ch, 0, audio, ch, 0, keep);
+
+        juce::String name = prefix + " mix";
+        if (solo >= 0)
+        {
+            const auto sample = bank.getRef (solo).displayName();
+            name = prefix + " " + (solo < numPads ? "pad " + juce::String (solo + 1).paddedLeft ('0', 2) : "break " + breakLetter (solo - numPads))
+                 + (sample.isNotEmpty() ? " " + sample : juce::String());
+        }
+        const auto file = request.folder.getChildFile (juce::File::createLegalFileName (name) + ".wav");
+        if (! writeWav24 (file, trimmed, sampleRate))
+        {
+            status.text = "COULD NOT WRITE " + file.getFileName();
+            return status;
+        }
+        status.files.add (file);
+
+        if (solo < 0)
+        {
+            // The hits as the engine played them (swing, nudge, ratchets and probability included).
+            juce::MidiMessageSequence sequence;
+            sequence.addEvent (juce::MidiMessage::tempoMetaEvent ((int) std::lround (60000000.0 / bpm)), 0.0);
+            sequence.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
+            const double ticksPerSample = bpm / 60.0 / sampleRate * 960.0;
+            for (const auto& h : hits)
+            {
+                const int note = h.lane < numPads ? midiFirstPad + h.lane
+                                                  : (h.slice >= 0 && h.slice < midiSliceCount ? midiFirstSlice + h.slice : midiFirstBreak + (h.lane - numPads));
+                const double tick = (double) h.sample * ticksPerSample;
+                const double ticks = std::max (30.0, (double) std::max (1, h.gateSamples) * ticksPerSample * 0.9);
+                sequence.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) juce::jlimit (1, 127, (int) std::lround (h.velocity * 127.0f))), tick);
+                sequence.addEvent (juce::MidiMessage::noteOff (1, note), tick + ticks);
+            }
+            sequence.updateMatchedPairs();
+            juce::MidiFile midiFile;
+            midiFile.setTicksPerQuarterNote (960);
+            midiFile.addTrack (sequence);
+            const auto midiPath = request.folder.getChildFile (juce::File::createLegalFileName (prefix) + ".mid");
+            midiPath.deleteFile();
+            juce::FileOutputStream stream (midiPath);
+            if (stream.openedOk() && midiFile.writeTo (stream))
+            {
+                stream.flush();
+                status.files.add (midiPath);
+            }
+        }
+    }
+    progress.store (1.0f);
+    status.text = "RENDERED " + juce::String (status.files.size()) + " FILES AT " + juce::String (bpm, 1) + " BPM";
+    return status;
+}
+
+LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderNow (const RenderRequest& request)
+{
+    const auto r = resolveRequest (request);
+    juce::MemoryBlock state;
+    getStateInformation (state);
+    auto renderer = std::make_unique<LabX0AudioProcessor>();
+    renderer->setStateInformation (state.getData(), (int) state.getSize());
+    std::atomic<float> progress { 0.0f };
+    return renderer->renderAll (r, r.sampleRate, r.bpm, progress);
+}
+
+bool LabX0AudioProcessor::startRender (const RenderRequest& request)
+{
+    if (renderBusy.exchange (true))
+        return false;
+    const auto r = resolveRequest (request);
+    juce::MemoryBlock state;
+    getStateInformation (state);
+    // Made here, on the message thread, and destroyed here too; only the rendering runs on the job thread.
+    auto renderer = std::make_shared<std::unique_ptr<LabX0AudioProcessor>> (std::make_unique<LabX0AudioProcessor>());
+    (*renderer)->setStateInformation (state.getData(), (int) state.getSize());
+    {
+        const juce::ScopedLock sl (renderLock);
+        renderStatus = {};
+        renderStatus.running = true;
+        renderStatus.folder = r.folder;
+        renderStatus.text = "RENDERING PATTERN " + juce::String (r.pattern + 1).paddedLeft ('0', 2) + "...";
+    }
+    renderProgress.store (0.0f);
+    ++renderVersion;
+    auto token = alive;
+    jobs->addJob ([this, token, renderer, r]
+    {
+        auto result = std::make_shared<RenderStatus> ((*renderer)->renderAll (r, r.sampleRate, r.bpm, renderProgress));
+        juce::MessageManager::callAsync ([this, token, renderer, result]
+        {
+            renderer->reset();
+            if (! token->load())
+                return;
+            {
+                const juce::ScopedLock sl (renderLock);
+                renderStatus = *result;
+                renderStatus.running = false;
+            }
+            renderBusy.store (false);
+            ++renderVersion;
+        });
+    });
+    return true;
+}
+
+LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::getRenderStatus() const
+{
+    const juce::ScopedLock sl (renderLock);
+    auto s = renderStatus;
+    s.progress = renderProgress.load();
+    return s;
 }
 
 int LabX0AudioProcessor::getEditPattern() const noexcept

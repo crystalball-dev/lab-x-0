@@ -85,6 +85,15 @@ LabX0AudioProcessorEditor::LabX0AudioProcessorEditor (LabX0AudioProcessor& p)
     addAndMakeVisible (presetBox);
     addAndMakeVisible (prevButton);
     addAndMakeVisible (nextButton);
+    labx0::ui::styleButton (renderButton, "Render the pattern being edited to WAV files to drag into the playlist");
+    renderButton.onClick = [this]
+    {
+        renderPanel.setVisible (! renderPanel.isVisible());
+        if (renderPanel.isVisible())
+            renderPanel.toFront (false);
+    };
+    addAndMakeVisible (renderButton);
+    addChildComponent (renderPanel);
 
     addAndMakeVisible (overlay);
     scopeBuffer.assign ((size_t) LabX0AudioProcessor::scopeSize, 0.0f);
@@ -214,6 +223,7 @@ void LabX0AudioProcessorEditor::resized()
 
     auto header = bounds.withHeight (headerHeight).reduced (margin, 14);
     auto presetArea = header.withSizeKeepingCentre (360, 26).translated (90, -4);
+    renderButton.setBounds (presetArea.withX (presetArea.getRight() + 14).withWidth (96));
     prevButton.setBounds (presetArea.removeFromLeft (26));
     nextButton.setBounds (presetArea.removeFromRight (26));
     presetBox.setBounds (presetArea.reduced (4, 0));
@@ -228,6 +238,8 @@ void LabX0AudioProcessorEditor::resized()
     auto side = rowA.removeFromRight (sideWidth);
     rowA.removeFromRight (gap);
     patternFrame = rowA;
+    renderPanel.setBounds (patternFrame.withSizeKeepingCentre (std::min (640, patternFrame.getWidth() - 40),
+                                                               std::min (360, patternFrame.getHeight() - 40)));
     browser.setBounds (browserFrame.withTrimmedTop (titleHeight + 4).reduced (panelPad - 2, 0).withTrimmedBottom (6));
     patternPanel.setBounds (patternFrame.withTrimmedTop (titleHeight + 4).reduced (panelPad - 2, 0).withTrimmedBottom (6));
 

@@ -70,6 +70,31 @@ public:
     // everySlice: one pad per slice (similar slices share only when there are more slices than pads).
     void explodeBreak (int breakSlot, int firstPad, bool everySlice, std::function<void (const juce::String&)> done);
     labx0::ExplodePlan explodeBreakNow (int breakSlot, int firstPad, bool everySlice = false, int* patternIndex = nullptr);
+
+    // RENDER (0.2.0): WAV files of a pattern as heard, made by a second engine on a background thread, to drag into
+    // the host's playlist. What: the mix; the mix and every lane with steps on its own (soloed, through the whole
+    // chain); or one lane. A MIDI file of the hits as played goes with the mix.
+    struct RenderRequest
+    {
+        int pattern = 0, passes = 1;
+        int what = 0;                  // 0 mix, 1 mix and stems, 2 one lane
+        int lane = 0;                  // for what == 2
+        double bpm = 0.0;              // 0 = the host's last tempo
+        double sampleRate = 0.0;       // 0 = the current rate
+        juce::File folder;             // empty = Documents\LAB X-0\Renders\<date time> Pattern NN
+    };
+    struct RenderStatus
+    {
+        bool running = false;
+        float progress = 0.0f;
+        juce::String text;
+        juce::Array<juce::File> files;   // WAVs, then the MIDI file
+        juce::File folder;
+    };
+    bool startRender (const RenderRequest& request);    // message thread; false while one is running
+    RenderStatus getRenderStatus() const;
+    int getRenderVersion() const noexcept { return renderVersion.load(); }
+    RenderStatus renderNow (const RenderRequest& request);   // all at once on this thread (the harness)
     labx0::SampleRef getSampleRef (int slot) const  { return bank.getRef (slot); }
     labx0::SampleRef resolveKitRef (const juce::String& text) const;
     void previewSample (const labx0::SampleRef& ref);
@@ -310,6 +335,24 @@ private:
     };
     ExplodeSource explodeSourceFor (int breakSlot) const;
     labx0::ExplodePlan analyseExplode (const ExplodeSource& source, int maxPads, bool everySlice, double& sampleRate);
+
+    // Rendering: these run on a renderer instance (never the one the host plays).
+    struct RecordedHit
+    {
+        juce::int64 sample = 0;
+        int lane = 0, slice = -1, gateSamples = 0;
+        float velocity = 1.0f;
+    };
+    std::vector<RecordedHit>* recordHits = nullptr;
+    RenderStatus renderAll (const RenderRequest& request, double sampleRate, double bpm, std::atomic<float>& progress);
+    juce::AudioBuffer<float> renderPass (int pattern, double sampleRate, double bpm, int body, int length, std::atomic<float>& progress,
+                                         float from, float to);
+    RenderRequest resolveRequest (const RenderRequest& request) const;
+    mutable juce::CriticalSection renderLock;
+    RenderStatus renderStatus;
+    std::atomic<int> renderVersion { 0 };
+    std::atomic<float> renderProgress { 0.0f };
+    std::atomic<bool> renderBusy { false };
     int applyExplode (int breakSlot, int firstPad, const labx0::ExplodePlan& plan, const ExplodeSource& source, double sampleRate);
 
     // Background work (EXPLODE, renders). Declared last, so it is destroyed first: a running job finishes before
