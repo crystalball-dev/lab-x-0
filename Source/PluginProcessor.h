@@ -60,6 +60,7 @@ public:
     void previewSample (const labx0::SampleRef& ref);
     void stopPreview();
     void audition (int lane, float velocity);
+    void auditionSlice (int breakSlot, int slice);
 
     int getEditPattern() const noexcept;
     void setEditPattern (int index);
@@ -103,6 +104,7 @@ public:
     int64_t samplesRendered = 0;
     int injectStage = -1;
     int64_t injectAtSample = -1;
+    int padTriggers = 0, breakTriggers = 0;
     void setLibraryOverride (labx0::Root r, const juce::File& f) { library->setRoot (r, f, false); }
    #endif
 
@@ -122,9 +124,10 @@ private:
 
     struct UiEvent
     {
-        int type = 0;        // 0 audition, 1 stop preview
+        int type = 0;        // 0 audition, 1 stop preview, 2 slice audition
         int lane = 0;
         float velocity = 1.0f;
+        int slice = -1;
     };
 
     struct SliceCache
@@ -145,7 +148,7 @@ private:
     void handleMidi (const juce::MidiMessage& m, int offsetInBlock) noexcept;
     void handleSeqEvent (const labx0::dsp::SeqEvent& e) noexcept;
     void triggerPad (int pad, float velocity, int pitch, int gateSamples) noexcept;
-    void triggerBreak (int b, double sourcePos, int slice, float velocity, int pitch, bool midiNote, int note) noexcept;
+    void triggerBreak (int b, double sourcePos, int slice, float velocity, int pitch, bool midiNote, int note, bool sliceGate = false) noexcept;
     void triggerBreakStep (int b, const labx0::dsp::SeqEvent& e) noexcept;
     void triggerBreakSlice (int b, int slice, float velocity, int note) noexcept;
     const SliceCache& slicesFor (int b, const labx0::dsp::SampleData* d) noexcept;

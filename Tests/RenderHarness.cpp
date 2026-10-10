@@ -608,6 +608,49 @@ int main (int argc, char* argv[])
             std::cout << i << "\t" << presets[(size_t) i].name << std::endl;
         return 0;
     }
+    if (args.contains ("--check-presets"))
+    {
+        // Every preset pattern parses and every sample reference resolves to a file on this machine.
+        auto proc = std::make_unique<LabX0AudioProcessor>();
+        int problems = 0, samples = 0, missing = 0;
+        const auto& presets = factoryPresets();
+        for (int i = 0; i < (int) presets.size(); ++i)
+        {
+            const auto& pr = presets[(size_t) i];
+            for (const auto& [index, text] : pr.patterns)
+            {
+                Pattern pat;
+                juce::String error;
+                if (! parsePatternText (text, pat, error))
+                {
+                    std::cout << "PATTERN " << pr.name << " #" << index << ": " << error << std::endl;
+                    ++problems;
+                }
+            }
+            for (int s = 0; s < previewSlot; ++s)
+            {
+                const auto& text = pr.samples[(size_t) s];
+                if (text.isEmpty())
+                    continue;
+                ++samples;
+                const auto ref = proc->resolveKitRef (text);
+                const auto file = proc->getLibrary().resolve (ref);
+                if (ref.isEmpty() || ! file.existsAsFile())
+                {
+                    std::cout << "MISSING " << pr.name << " slot " << s << ": " << text << std::endl;
+                    ++missing;
+                }
+            }
+            for (const auto& [id, value] : pr.values)
+                if (paramIndexForId (id) < 0)
+                {
+                    std::cout << "PARAM " << pr.name << ": unknown id " << id << std::endl;
+                    ++problems;
+                }
+        }
+        std::cout << "presets=" << presets.size() << " samples=" << samples << " missing=" << missing << " problems=" << problems << std::endl;
+        return (problems == 0 && missing == 0) ? 0 : 1;
+    }
     if (args.contains ("--list-kit"))
     {
         for (int i = 0; i < kitCatalogSize; ++i)
@@ -856,6 +899,7 @@ int main (int argc, char* argv[])
               << " non_finite=" << nonFinite
               << " faults=" << proc->meters.faults.load()
               << " faults_logged=" << proc->flushFaultLog()
+              << " pad_triggers=" << proc->padTriggers << " break_triggers=" << proc->breakTriggers
               << " render_ms=" << juce::String (elapsedMs, 1)
               << " realtime_x=" << juce::String (audioSeconds * 1000.0 / std::max (0.001, elapsedMs), 1);
     if (cpuSeconds >= 0.05)

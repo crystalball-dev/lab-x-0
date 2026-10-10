@@ -471,8 +471,7 @@ namespace labx0
         if (e.ext == extFlac)                                                                 return parseFlac (in, e);
         if (e.ext == extMp3 || std::memcmp (magic, "ID3", 3) == 0 || (magic[0] == 0xff && (magic[1] & 0xe0) == 0xe0))
             return parseMp3 (in, e);
-        e.flags |= flagUnsupported;
-        return false;
+        return false;   // not audio at all: reported as unreadable, not as an unsupported codec
     }
 
     //==============================================================================

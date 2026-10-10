@@ -295,6 +295,16 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                 const auto& e = uiEvents[(size_t) i];
                 if (e.type == 1)
                     preview.stop();
+                else if (e.type == 2)
+                {
+                    const int b = juce::jlimit (0, numBreaks - 1, e.lane);
+                    if (const auto* d = blockSamples[(size_t) (slotFirstBreak + b)])
+                    {
+                        const auto& sc = slicesFor (b, d);
+                        const int s = std::max (0, e.slice) % sc.count;
+                        triggerBreak (b, std::max (1.0, (double) sc.starts[(size_t) s]), s, e.velocity, 0, false, -1, true);
+                    }
+                }
                 else if (e.lane < numPads)
                     triggerPad (e.lane, e.velocity, 0, -1);
                 else if (e.lane < laneTime)
@@ -836,6 +846,9 @@ void LabX0AudioProcessor::triggerPad (int pad, float velocity, int pitch, int ga
     target->kill();
     target->start (d, s);
     target->updateFilter (padSettings[(size_t) pad].tone);
+   #if LABX0_HARNESS
+    ++padTriggers;
+   #endif
 }
 
 double LabX0AudioProcessor::loopBeats (int b, const dsp::SampleData* d) const noexcept
@@ -880,7 +893,7 @@ const LabX0AudioProcessor::SliceCache& LabX0AudioProcessor::slicesFor (int b, co
     return c;
 }
 
-void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, float velocity, int pitch, bool midiNote, int note) noexcept
+void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, float velocity, int pitch, bool midiNote, int note, bool sliceGate) noexcept
 {
     const auto* d = blockSamples[(size_t) (slotFirstBreak + b)];
     meters.laneFlash[(size_t) (laneFirstBreak + b)].store (velocity);
@@ -892,7 +905,7 @@ void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, floa
     const float decay = rawValue (P::brk (b, P::brDecay));
 
     double stopAt = -1.0;
-    if (gate == Choice::gateSlice)
+    if (gate == Choice::gateSlice || sliceGate)
     {
         // The end of the slice that contains the start position.
         stopAt = (double) d->length;
@@ -922,6 +935,9 @@ void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, floa
     voice.start (d, s);
     voice.updateFilter (breakSettings[(size_t) b].tone);
     breakMidiNote[(size_t) b] = midiNote ? note : -1;
+   #if LABX0_HARNESS
+    ++breakTriggers;
+   #endif
 }
 
 void LabX0AudioProcessor::triggerBreakStep (int b, const dsp::SeqEvent& e) noexcept
@@ -1145,14 +1161,21 @@ void LabX0AudioProcessor::stopPreview()
 {
     const auto fifoScope = uiFifo.write (1);
     if (fifoScope.blockSize1 > 0)
-        uiEvents[(size_t) fifoScope.startIndex1] = { 1, 0, 0.0f };
+        uiEvents[(size_t) fifoScope.startIndex1] = { 1, 0, 0.0f, -1 };
 }
 
 void LabX0AudioProcessor::audition (int lane, float velocity)
 {
     const auto fifoScope = uiFifo.write (1);
     if (fifoScope.blockSize1 > 0)
-        uiEvents[(size_t) fifoScope.startIndex1] = { 0, lane, velocity };
+        uiEvents[(size_t) fifoScope.startIndex1] = { 0, lane, velocity, -1 };
+}
+
+void LabX0AudioProcessor::auditionSlice (int breakSlot, int slice)
+{
+    const auto fifoScope = uiFifo.write (1);
+    if (fifoScope.blockSize1 > 0)
+        uiEvents[(size_t) fifoScope.startIndex1] = { 2, breakSlot, 0.85f, slice };
 }
 
 int LabX0AudioProcessor::getEditPattern() const noexcept
