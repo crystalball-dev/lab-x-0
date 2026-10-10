@@ -5,13 +5,20 @@
 //               [--seconds 4] [--hold 2] [--velocity 0.8] [--sr 48000] [--block 512] [--bpm 174] [--free]
 //               [--jump "<at s>:<to quarter>"] [--library <dir>] [--specimens <dir>] [--pack <dir>]
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
-//               [--png <file.png>] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
+//               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
 //   LabX0Render --analyze <file> [--estimate-only] [--host-bpm 174] [--sens 0.5] [--slicing 0]
 //   LabX0Render --index-test <dir> [--cache <file>]
 //   LabX0Render --search-test <entries>
 //   LabX0Render --categorise-file <labels.tsv>
+//   LabX0Render --check-kit | --check-presets | --settings-test
+//   LabX0Render --tempo-batch <list.tsv>          (lines: path<TAB>tagged bpm; prints estimate, octave nearest the tag)
+//   LabX0Render --slice-batch <list.txt> [--sens 0.5]   (lines: path; prints sample rate, slice count, slice starts)
+//   LabX0Render --index-dump <dir> [--count 300] [--seed 1]
+//
+// --init resets every parameter to its default and clears the kit and all patterns (after --preset, before the
+// rest), so a test starts from a known, neutral state. --pat <index>:<text> may repeat.
 //   LabX0Render --list | --list-params | --list-kit
 //
 // <ref> is "USER:path/inside/library", "ZONE:...", "PACK:...", "KIT:<name>" or an absolute file path.
@@ -191,7 +198,7 @@ namespace
         {
             if (bank.getRef (s).isEmpty())
                 continue;
-            std::cout << " slot" << s << "=\"" << bank.getStatusText (s) << "\"";
+            std::cout << " slot" << s << "=\"" << bank.getStatusText (s) << "\" slot" << s << "_status=" << (int) bank.getStatus (s);
         }
     }
 
@@ -238,8 +245,21 @@ namespace
 
     int analyseFile (const juce::StringArray& args)
     {
-        const juce::File file (option (args, "--analyze"));
         Library library;
+        const auto target = option (args, "--analyze");
+        auto file = juce::File::getCurrentWorkingDirectory().getChildFile (target);
+        if (! file.existsAsFile() && ! juce::File::isAbsolutePath (target))
+        {
+            SampleRef ref;
+            if (target.startsWith ("KIT:"))
+            {
+                if (const auto* e = findKitEntry (target.substring (4)))
+                    ref = { e->root, e->path };
+            }
+            else
+                ref = SampleRef::fromString (target);
+            file = library.resolve (ref);
+        }
         SampleBank bank (library);
         const double hostBpm = option (args, "--host-bpm", "120").getDoubleValue();
         auto result = bank.decode (file, option (args, "--offset", "0").getDoubleValue(), true, hostBpm, nullptr);
@@ -272,6 +292,38 @@ namespace
         for (int i = 0; i < count; ++i)
             std::cout << (i ? "," : "") << slices[(size_t) i];
         std::cout << std::endl;
+        return 0;
+    }
+
+    // The break slicer's default slice points, as SLICE mode uses them, for many files.
+    int sliceBatch (const juce::StringArray& args)
+    {
+        Library library;
+        SampleBank bank (library);
+        const float sens = option (args, "--sens", "0.5").getFloatValue();
+        for (const auto& line : juce::StringArray::fromLines (juce::File (option (args, "--slice-batch")).loadFileAsString()))
+        {
+            const auto path = line.trim();
+            if (path.isEmpty())
+                continue;
+            auto result = bank.decode (juce::File (path), 0.0, true, 120.0, nullptr);
+            if (result.data == nullptr)
+            {
+                std::cout << "ERR	0		" << path << std::endl;
+                continue;
+            }
+            const auto& d = *result.data;
+            const double beats = d.beats > 0.0 ? d.beats : 4.0;
+            const double loopBpm = beats * 60.0 / ((double) d.length / d.sampleRate);
+            const int minSpacing = (int) (60.0 / std::max (20.0, loopBpm) / 8.0 * d.sampleRate);
+            std::vector<int> slices ((size_t) maxSlices), scratch (d.onsetPos.size() + 1);
+            const int count = analysis::onsetSlices (d.onsetPos.data(), d.onsetStrength.data(), (int) d.onsetPos.size(), sens, minSpacing,
+                                                     d.length, slices.data(), maxSlices, scratch.data());
+            std::cout << d.sampleRate << "	" << count << "	";
+            for (int i = 0; i < count; ++i)
+                std::cout << (i ? "," : "") << slices[(size_t) i];
+            std::cout << "	" << path << std::endl;
+        }
         return 0;
     }
 
@@ -391,14 +443,16 @@ namespace
         juce::StringArray misses;
         for (const auto& line : juce::StringArray::fromLines (file.loadFileAsString()))
         {
-            const auto label = line.upToFirstOccurrenceOf ("\t", false, false).trim().toUpperCase();
-            const auto path = line.fromFirstOccurrenceOf ("\t", false, false).trim();
+            // label<TAB>relative path[<TAB>seconds]
+            const auto cols = juce::StringArray::fromTokens (line, "\t", "");
+            const auto label = cols[0].trim().toUpperCase();
+            const auto path = cols[1].trim();
             if (label.isEmpty() || path.isEmpty() || label.startsWith ("#"))
                 continue;
-            const auto folder = path.upToLastOccurrenceOf ("/", false, false).toLowerCase().toStdString();
-            const auto name = path.fromLastOccurrenceOf ("/", false, false).toLowerCase().toStdString();
-            const float seconds = line.fromLastOccurrenceOf ("\t", false, false).getFloatValue();
-            const auto c = categorise (name, folder, Root::user, path.containsChar ('\t') ? seconds : -1.0f);
+            const auto folder = path.upToLastOccurrenceOf ("/", false, false).toStdString();
+            const auto name = path.fromLastOccurrenceOf ("/", false, false).toStdString();
+            const float seconds = cols.size() > 2 ? cols[2].getFloatValue() : -1.0f;
+            const auto c = categorise (name, folder, Root::user, seconds);
             ++total;
             if (label == categoryNames[c] || (label == "NONE" && c == catNone))
                 ++correct;
@@ -596,6 +650,8 @@ int main (int argc, char* argv[])
         return analyseFile (args);
     if (args.contains ("--index-test"))
         return indexTest (args);
+    if (args.contains ("--slice-batch"))
+        return sliceBatch (args);
     if (args.contains ("--search-test"))
         return searchTest (args);
     if (args.contains ("--categorise-file"))
@@ -606,6 +662,112 @@ int main (int argc, char* argv[])
         const auto& presets = factoryPresets();
         for (int i = 0; i < (int) presets.size(); ++i)
             std::cout << i << "\t" << presets[(size_t) i].name << std::endl;
+        return 0;
+    }
+    if (args.contains ("--settings-test"))
+    {
+        // Roots persist in the settings file and come back in a new Library; a missing root reports itself.
+        const auto temp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("labx0_settings_test");
+        temp.deleteRecursively();
+        temp.createDirectory();
+        const auto settingsFile = temp.getChildFile ("test.settings");
+        const auto folder = temp.getChildFile ("library");
+        folder.createDirectory();
+        Library::settingsFileOverride = settingsFile;
+        juce::String fails;
+        {
+            Library a;
+            a.setRoot (Root::user, folder, true);
+            a.setFavourite ({ Root::user, "Drums/kick.wav" }, true);
+        }
+        {
+            Library b;
+            if (b.getRoot (Root::user) != folder)
+                fails << " root_not_restored";
+            if (! b.isFavourite ({ Root::user, "Drums/kick.wav" }))
+                fails << " favourite_not_restored";
+            b.setRoot (Root::user, temp.getChildFile ("does_not_exist"), false);
+            b.requestScan (Root::user);
+            juce::Thread::sleep (400);
+            const auto status = b.getStatusText (Root::user);
+            if (! status.contains ("NOT FOUND"))
+                fails << " missing_status=" << status.replaceCharacter (' ', '_');
+            SampleBank bank (b);
+            bank.assign (0, { Root::user, "Drums/kick.wav" });
+            bank.waitUntilSettled (5000);
+            const auto slot = bank.getStatusText (0);
+            if (bank.getStatus (0) == SampleBank::Status::ready || ! slot.contains ("USER LIBRARY NOT FOUND"))
+                fails << " slot_status=" << slot.replaceCharacter (' ', '_');
+            std::cout << "settings_file=" << settingsFile.getFullPathName() << " missing_root_status=\"" << status << "\" slot_status=\"" << slot << "\"";
+        }
+        Library::settingsFileOverride = juce::File();
+        temp.deleteRecursively();
+        std::cout << " settings_test=" << (fails.isEmpty() ? "PASS" : "FAIL" + fails) << std::endl;
+        return fails.isEmpty() ? 0 : 1;
+    }
+    if (args.contains ("--index-dump"))
+    {
+        // A random sample of indexed paths (for labelling the category test).
+        auto index = Library::scanFolder (Root::user, juce::File (option (args, "--index-dump")), nullptr, nullptr, nullptr, nullptr, true);
+        if (index == nullptr)
+            return 1;
+        juce::Random rnd (option (args, "--seed", "1").getIntValue());
+        const int count = option (args, "--count", "300").getIntValue();
+        for (int k = 0; k < count && ! index->entries.empty(); ++k)
+        {
+            const auto& e = index->entries[(size_t) rnd.nextInt ((int) index->entries.size())];
+            std::cout << categoryNames[e.category] << "\t" << index->relativePath (e) << "\t" << juce::String (e.seconds, 2) << std::endl;
+        }
+        return 0;
+    }
+    if (args.contains ("--check-kit"))
+    {
+        // Every ZONE KIT entry resolves, decodes and is loud enough to use.
+        Library library;
+        SampleBank bank (library);
+        int ready = 0, failed = 0;
+        for (int i = 0; i < kitCatalogSize; ++i)
+        {
+            const auto& e = kitCatalog[i];
+            const auto file = library.resolve ({ e.root, e.path });
+            auto result = bank.decode (file, 0.0, false, 120.0, nullptr);
+            const bool ok = result.data != nullptr && result.data->length > 0;
+            ok ? ++ready : ++failed;
+            std::cout << (ok ? "OK	" : "FAIL	") << e.name << "	";
+            if (ok)
+                std::cout << juce::String ((double) result.data->length / result.data->sampleRate, 3) << "	"
+                          << juce::String (juce::Decibels::gainToDecibels (0.891f / std::max (1.0e-9f, result.data->normaliseGain)), 1);
+            else
+                std::cout << result.message;
+            std::cout << std::endl;
+        }
+        std::cout << "kit_entries=" << kitCatalogSize << " kit_ready=" << ready << " kit_failed=" << failed << std::endl;
+        return failed == 0 ? 0 : 1;
+    }
+    if (args.contains ("--tempo-batch"))
+    {
+        Library library;
+        SampleBank bank (library);
+        for (const auto& line : juce::StringArray::fromLines (juce::File (option (args, "--tempo-batch")).loadFileAsString()))
+        {
+            const auto path = line.upToFirstOccurrenceOf ("	", false, false).trim();
+            const double truth = line.fromFirstOccurrenceOf ("	", false, false).getDoubleValue();
+            if (path.isEmpty())
+                continue;
+            auto result = bank.decode (juce::File (path), 0.0, false, truth > 0.0 ? truth : 120.0, nullptr);
+            if (result.data == nullptr)
+            {
+                std::cout << "ERR	ERR	" << path << std::endl;
+                continue;
+            }
+            const auto& d = *result.data;
+            std::vector<float> mono ((size_t) d.length);
+            for (int i = 0; i < d.length; ++i)
+                mono[(size_t) i] = 0.5f * (d.l()[i] + d.r()[i]);
+            const auto env = analysis::computeEnvelope (mono.data(), d.length, d.sampleRate);
+            const double estimate = analysis::estimateTempo (env, (double) d.length / d.sampleRate);
+            std::cout << juce::String (estimate, 3) << "	" << juce::String (analysis::nearestOctave (estimate, truth), 3) << "	" << path << std::endl;
+        }
         return 0;
     }
     if (args.contains ("--check-presets"))
@@ -716,6 +878,16 @@ int main (int argc, char* argv[])
         proc->setCurrentProgram (index);
     }
 
+    if (args.contains ("--init"))
+    {
+        for (const auto& spec : paramSpecs())
+            if (auto* p = proc->apvts.getParameter (spec.id))
+                p->setValueNotifyingHost (p->getDefaultValue());
+        proc->getPatterns().editAll ([] (PatternBank& b) { for (auto& p : b.patterns) p.clear(); });
+        for (int s = 0; s < previewSlot; ++s)
+            proc->assignSample (s, {});
+    }
+
     if (args.contains ("--clear-patterns"))
         proc->getPatterns().editAll ([] (PatternBank& b) { for (auto& p : b.patterns) p.clear(); });
     if (args.contains ("--clear-kit"))
@@ -733,6 +905,18 @@ int main (int argc, char* argv[])
         }
         const int index = option (args, "--pattern-index", "0").getIntValue();
         proc->getPatterns().edit (index, [&pat] (Pattern& p) { p = pat; });
+    }
+
+    for (const auto& a : allOptions (args, "--pat"))
+    {
+        Pattern pat;
+        juce::String error;
+        if (! parsePatternText (a.fromFirstOccurrenceOf (":", false, false), pat, error))
+        {
+            std::cerr << "pattern: " << error << std::endl;
+            return 2;
+        }
+        proc->getPatterns().edit (a.upToFirstOccurrenceOf (":", false, false).getIntValue(), [&pat] (Pattern& p) { p = pat; });
     }
 
     for (const auto& a : allOptions (args, "--pad"))
@@ -950,7 +1134,7 @@ int main (int argc, char* argv[])
         proc->getPatterns().read ([&patternsBefore] (const PatternBank& b) { for (const auto& p : b.patterns) patternsBefore << patternToText (p) << "\n--\n"; });
         juce::StringArray refsBefore;
         for (int s = 0; s < previewSlot; ++s)
-            refsBefore.add (proc->getSampleRef (s).toString());
+            refsBefore.add (proc->getSampleRef (s).toString() + "@" + juce::String (proc->getBank().getOffset (s), 3));
 
         auto other = std::make_unique<LabX0AudioProcessor>();
         other->setCurrentProgram ((proc->getCurrentProgram() + 1) % other->getNumPrograms());
@@ -967,11 +1151,14 @@ int main (int argc, char* argv[])
                 std::cout << "roundtrip mismatch: " << paramSpecs()[i].id << " " << before[i] << " vs " << after[i] << std::endl;
             }
         for (int s = 0; s < previewSlot; ++s)
-            if (refsBefore[s] != other->getSampleRef (s).toString())
+        {
+            const auto restored = other->getSampleRef (s).toString() + "@" + juce::String (other->getBank().getOffset (s), 3);
+            if (refsBefore[s] != restored)
             {
                 ++mismatches;
-                std::cout << "roundtrip mismatch: slot " << s << " " << refsBefore[s] << " vs " << other->getSampleRef (s).toString() << std::endl;
+                std::cout << "roundtrip mismatch: slot " << s << " " << refsBefore[s] << " vs " << restored << std::endl;
             }
+        }
         if (patternsBefore != patternsAfter)
         {
             ++mismatches;
@@ -985,6 +1172,12 @@ int main (int argc, char* argv[])
     if (args.contains ("--png"))
     {
         std::unique_ptr<juce::AudioProcessorEditor> editor (proc->createEditor());
+        if (args.contains ("--png-wait"))
+        {
+            // Let the browser's timer, the library scan and the search callbacks run, as they would in a host.
+            editor->setVisible (true);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (option (args, "--png-wait").getIntValue());
+        }
         if (auto* labEditor = dynamic_cast<LabX0AudioProcessorEditor*> (editor.get()))
             for (int i = 0; i < 12; ++i)
                 labEditor->refreshFromProcessor();

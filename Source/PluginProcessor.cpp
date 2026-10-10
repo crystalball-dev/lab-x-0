@@ -702,6 +702,10 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
     }
 
     regulator.process (outL, outR, n, 0.0f, v[P::ceiling], 0.0f);
+   #if LABX0_HARNESS
+    if (injectStage == stageOutput && injectAtSample >= samplesRendered - n && injectAtSample < samplesRendered)
+        outL[0] = std::numeric_limits<float>::quiet_NaN();
+   #endif
 
     bool fault = false;
     for (int i = 0; i < n; ++i)

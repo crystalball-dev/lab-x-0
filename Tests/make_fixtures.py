@@ -139,6 +139,28 @@ def main():
     sn = (np.random.default_rng(9).uniform(-1, 1, n) * (np.exp(-np.arange(n) / (0.004 * SR)) * 0.9 + np.exp(-np.arange(n) / (0.08 * SR)) * 0.5))
     write("snare.wav", sn / np.abs(sn).max() * 0.8, subtype="FLOAT")
 
+    # Anomaly checks: a sweep (every moment has its own frequency) and a long steady tone
+    secs = 10.0
+    tt = np.arange(int(SR * secs)) / SR
+    f0, f1 = 100.0, 2000.0
+    phase = 2 * np.pi * f0 * secs / np.log(f1 / f0) * (np.exp(tt / secs * np.log(f1 / f0)) - 1)
+    write("sweep.wav", 0.5 * np.sin(phase), subtype="FLOAT")
+    write("tone_1000_long.wav", tone(1000.0, 8.0), subtype="FLOAT")
+
+    # Break fitting: 16 beats at 172 BPM, a 1 kHz pip of 150 ms on every beat (downbeats louder)
+    beat = 60.0 / 172.0
+    pips = np.zeros(int(round(16 * beat * SR)))
+    n = int(0.15 * SR)
+    ramp = int(0.003 * SR)
+    shape = np.ones(n)
+    shape[:ramp] = 0.5 - 0.5 * np.cos(np.pi * np.arange(ramp) / ramp)
+    shape[-ramp:] = shape[:ramp][::-1]
+    pip = np.sin(2 * np.pi * 1000.0 * np.arange(n) / SR) * shape
+    for k in range(16):
+        i = int(round(k * beat * SR))
+        pips[i:i + n] += pip * (0.8 if k % 4 == 0 else 0.5)
+    write("tempo/pips_172bpm.wav", pips, subtype="PCM_24")
+
     print("fixtures written to", FIX)
     return 0
 

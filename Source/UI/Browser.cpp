@@ -303,11 +303,14 @@ namespace labx0::ui
             text = juce::String ((int) rows.size()) + " OF " + juce::String (kitCatalogSize) + " ZONE KIT SOUNDS";
         else
         {
+            // Two lines: counts, then the folder (its end, when the whole path would wrap).
             const auto r = rootForTab (tab);
             const auto folder = library.getRoot (r);
-            text = juce::String (rootTag (r)) + "  " + library.getStatusText (r) + "\n"
-                 + (folder != juce::File() ? folder.getFullPathName() : juce::String ("NO FOLDER SET"))
-                 + (index != nullptr ? "   " + juce::String ((int) rows.size()) + " SHOWN" : juce::String());
+            auto path = folder != juce::File() ? folder.getFullPathName() : juce::String ("NO FOLDER SET");
+            if (path.length() > 44)
+                path = "..." + path.getLastCharacters (41);
+            text = juce::String (rootTag (r)) + "  " + library.getStatusText (r)
+                 + (index != nullptr ? "  /  " + juce::String ((int) rows.size()) + " SHOWN" : juce::String()) + "\n" + path;
         }
         if (status.getText() != text)
             status.setText (text, juce::dontSendNotification);

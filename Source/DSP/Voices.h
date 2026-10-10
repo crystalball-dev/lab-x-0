@@ -399,12 +399,15 @@ namespace labx0::dsp
                 float a = 0.0f, b = 0.0f;
                 if (p.fit == 2)
                 {
-                    // STRETCH: two Hann grains half a grain apart follow the timeline at the original pitch.
+                    // STRETCH: two Hann grains half a grain apart follow the timeline at the original pitch. Each new
+                    // grain starts where the source best continues the fading one (WSOLA), so tones keep their pitch.
                     if (grainPhase == 0)
                     {
                         auto& g = grains[(size_t) nextGrain];
+                        const auto& fadingGrain = grains[(size_t) (nextGrain ^ 1)];
                         g.active = true;
-                        g.src = timeline;
+                        g.src = (firstGrain || ! fadingGrain.active) ? timeline
+                                                                      : alignGrain (*d, timeline, fadingGrain.src, p.grainRate * stepRatio);
                         g.age = 0;
                         g.first = firstGrain;
                         firstGrain = false;
@@ -494,6 +497,56 @@ namespace labx0::dsp
             int age = 0;
             bool active = false, first = false;
         };
+
+        // WSOLA: the start within +-6 ms of the timeline whose next 10 ms look most like what the fading grain plays
+        // next (normalised cross-correlation of L+R, every 4th sample, candidates 2 samples apart, then refined).
+        // Keeps the fading grain's fractional position, so the two grains stay in phase.
+        static double alignGrain (const SampleData& d, double target, double continuation, double rate) noexcept
+        {
+            const float* L = d.l();
+            const float* R = d.r();
+            const int radius = std::max (8, (int) (0.006 * d.sampleRate));
+            const int window = std::max (32, (int) (0.010 * d.sampleRate));
+            const int reach = (int) std::ceil ((double) window * rate) + 2;
+            const int c0 = (int) continuation;
+            if (c0 < 0 || c0 + reach >= d.length)
+                return target;
+
+            auto score = [&] (int j)
+            {
+                const int s0 = c0 + j;
+                if (s0 < 0 || s0 + reach >= d.length)
+                    return -1.0e30;
+                double xy = 0.0, yy = 1.0e-12;
+                for (int k = 0; k < window; k += 4)
+                {
+                    const int step = (int) ((double) k * rate);
+                    const float x = L[c0 + step] + R[c0 + step];
+                    const float y = L[s0 + step] + R[s0 + step];
+                    xy += (double) x * y;
+                    yy += (double) y * y;
+                }
+                return xy / std::sqrt (yy);
+            };
+
+            const int lo = (int) std::floor (target - continuation) - radius;
+            const int hi = (int) std::ceil (target - continuation) + radius;
+            int best = (int) std::lround (target - continuation);
+            double bestScore = score (best);
+            for (int j = lo; j <= hi; j += 2)
+                if (const double s = score (j); s > bestScore)
+                {
+                    bestScore = s;
+                    best = j;
+                }
+            for (const int j : { best - 1, best + 1 })
+                if (const double s = score (j); s > bestScore)
+                {
+                    bestScore = s;
+                    best = j;
+                }
+            return continuation + (double) best;
+        }
 
         SVF filterL, filterR;
         ClickTail tail;

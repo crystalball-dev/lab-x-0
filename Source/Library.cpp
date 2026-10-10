@@ -63,93 +63,278 @@ namespace labx0
             return s.toLowerCase().toStdString();
         }
 
-        bool isAlnum (char c) noexcept
-        {
-            return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
-        }
-
         bool has (std::string_view s, std::string_view token) noexcept
         {
             return s.find (token) != std::string_view::npos;
         }
 
-        // A short token that must stand alone: "bd" in "bd_01" or "808 bd", not in "abduct".
-        bool hasWord (std::string_view s, std::string_view w) noexcept
+        std::string lowerAscii (std::string_view s)
         {
-            size_t pos = 0;
-            while ((pos = s.find (w, pos)) != std::string_view::npos)
+            std::string out (s);
+            for (auto& c : out)
+                if (c >= 'A' && c <= 'Z')
+                    c = (char) (c - 'A' + 'a');
+            return out;
+        }
+
+        // A name or folder as words: letters and digits split apart, camelCase split ("YChopHat3" gives "y", "chop",
+        // "hat", "3"; "GTKick" gives "gt", "kick"), '#' kept after a single letter ("c#"). Words are lowercase views
+        // into `lower`, which "inside" terms search whole (for run-together names like "lofimusiccollection").
+        // Constructed in place and never moved: the views point into the object's own string.
+        struct Text
+        {
+            std::string lower;
+            std::vector<std::string_view> words;
+
+            explicit Text (std::string_view s)
             {
-                const bool startOk = pos == 0 || ! isAlnum (s[pos - 1]) || (s[pos - 1] >= '0' && s[pos - 1] <= '9');
-                const size_t end = pos + w.size();
-                const bool endOk = end >= s.size() || ! isAlnum (s[end]) || (s[end] >= '0' && s[end] <= '9');
-                if (startOk && endOk)
-                    return true;
-                ++pos;
+                lower.assign (s.begin(), s.end());
+                for (auto& c : lower)
+                    if (c >= 'A' && c <= 'Z')
+                        c = (char) (c - 'A' + 'a');
+
+                auto kind = [s] (size_t i)
+                {
+                    const auto c = (unsigned char) s[i];
+                    if (c >= 'A' && c <= 'Z')                return 1;   // upper case
+                    if ((c >= 'a' && c <= 'z') || c >= 0x80) return 2;   // lower case, and any byte of a non-ASCII letter
+                    if (c >= '0' && c <= '9')                return 3;
+                    if (c == '#')                            return 4;
+                    return 0;
+                };
+
+                const std::string_view view (lower);
+                size_t i = 0;
+                while (i < s.size())
+                {
+                    const int k = kind (i);
+                    if (k == 0 || k == 4)
+                    {
+                        ++i;
+                        continue;
+                    }
+                    size_t j = i + 1;
+                    if (k == 3)
+                    {
+                        while (j < s.size() && kind (j) == 3)
+                            ++j;
+                    }
+                    else
+                    {
+                        while (j < s.size())
+                        {
+                            const int kj = kind (j);
+                            if (kj == 4 && j == i + 1)
+                            {
+                                ++j;   // "c#"
+                                continue;
+                            }
+                            if (kj == 2)
+                            {
+                                ++j;
+                                continue;
+                            }
+                            if (kj == 1)
+                            {
+                                // Upper case after lower case starts a word ("chopHat"); in a run of capitals, the last
+                                // one before lower case starts one ("GTKick").
+                                const int prev = kind (j - 1);
+                                if (prev == 2 || (prev == 1 && j + 1 < s.size() && kind (j + 1) == 2))
+                                    break;
+                                ++j;
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                    words.push_back (view.substr (i, j - i));
+                    i = j;
+                }
+            }
+        };
+
+        bool startsWith (std::string_view t, std::string_view p) noexcept { return t.size() >= p.size() && t.substr (0, p.size()) == p; }
+        bool endsWith (std::string_view t, std::string_view p) noexcept   { return t.size() >= p.size() && t.substr (t.size() - p.size()) == p; }
+
+        enum class How { word, prefix, inside };
+        struct Term
+        {
+            std::string_view text;
+            How how;
+        };
+
+        template <size_t N>
+        bool hasAny (const Text& t, const Term (&terms)[N]) noexcept
+        {
+            for (const auto& term : terms)
+            {
+                if (term.how == How::inside)
+                {
+                    if (t.lower.find (term.text) != std::string::npos)
+                        return true;
+                    continue;
+                }
+                for (auto w : t.words)
+                    if (term.how == How::word ? w == term.text : startsWith (w, term.text))
+                        return true;
             }
             return false;
         }
 
-        template <size_t N>
-        bool hasAny (std::string_view s, const std::string_view (&tokens)[N]) noexcept
-        {
-            for (auto t : tokens)
-                if (has (s, t))
-                    return true;
-            return false;
-        }
+        constexpr auto W = How::word;
+        constexpr auto P = How::prefix;
+        constexpr auto I = How::inside;
 
-        template <size_t N>
-        bool hasAnyWord (std::string_view s, const std::string_view (&tokens)[N]) noexcept
-        {
-            for (auto t : tokens)
-                if (hasWord (s, t))
-                    return true;
-            return false;
-        }
+        constexpr Term kickTerms[]  = { { "kick", I }, { "kik", P }, { "bassdrum", I } };
+        constexpr Term kickAbbr[]   = { { "bd", W }, { "kd", W }, { "kck", W } };
+        constexpr Term tomTerms[]   = { { "tom", P } };
+        constexpr Term snareTerms[] = { { "snare", I }, { "snr", P }, { "clap", I }, { "rimshot", I } };
+        constexpr Term snareAbbr[]  = { { "sd", W }, { "sn", W }, { "clp", W }, { "cp", W } };
+        constexpr Term hatTerms[]   = { { "hihat", I }, { "hat", W }, { "hats", W } };
+        constexpr Term hatAbbr[]    = { { "hh", W }, { "oh", W }, { "ch", W }, { "ohh", W }, { "chh", W }, { "hhc", W }, { "hho", W } };
+        constexpr Term cymTerms[]   = { { "crash", I }, { "ride", P }, { "cymbal", I }, { "splash", P }, { "china", W }, { "cym", P } };
+        constexpr Term percTerms[]  = { { "perc", P }, { "perk", P }, { "conga", I }, { "bongo", I }, { "shaker", I }, { "tamb", P },
+                                        { "cowbell", I }, { "clave", P }, { "rim", P }, { "woodblock", I }, { "guiro", P }, { "cabasa", P },
+                                        { "timbale", P }, { "agogo", P }, { "triangle", I }, { "tabla", P }, { "djembe", P },
+                                        { "vibraslap", I }, { "stick", P }, { "snap", P }, { "cajon", P }, { "maraca", P } };
+        constexpr Term percWeak[]   = { { "click", P }, { "knock", P }, { "block", P }, { "bell", W }, { "bells", W }, { "shake", W },
+                                        { "shk", W } };
+        constexpr Term voxTerms[]   = { { "vox", P }, { "vocal", I }, { "voice", P }, { "voc", W }, { "acapella", I }, { "acappella", I },
+                                        { "shout", P }, { "chant", P }, { "speech", P }, { "spoken", W }, { "phrase", P }, { "adlib", I },
+                                        { "dialog", P }, { "dialect", P }, { "scream", P }, { "yell", P }, { "choir", P },
+                                        { "conversation", P }, { "interview", P }, { "talk", P }, { "hey", W }, { "tag", W }, { "tags", W },
+                                        { "vo", W }, { "sing", W }, { "singing", W }, { "singer", W }, { "rap", W }, { "rapper", W } };
+        constexpr Term fxTerms[]    = { { "fx", W }, { "sfx", W }, { "effect", P }, { "riser", P }, { "lifter", I }, { "impact", P },
+                                        { "sweep", P }, { "noise", P }, { "whoosh", P }, { "swoosh", P }, { "explo", P }, { "gun", W },
+                                        { "gunshot", P }, { "laser", P }, { "zap", W }, { "glitch", P }, { "siren", P }, { "atmos", P },
+                                        { "foley", P }, { "transition", P }, { "rewind", P }, { "blast", P }, { "rain", W }, { "thunder", P },
+                                        { "wind", W }, { "storm", P }, { "ambien", P }, { "halloween", P }, { "horror", P }, { "creak", P },
+                                        { "footstep", P }, { "crowd", P }, { "radio", P }, { "static", W }, { "alarm", P }, { "train", W } };
+        constexpr Term fxWeak[]     = { { "hit", W }, { "hits", W }, { "stab", P }, { "drop", W }, { "reverse", P }, { "scratch", P },
+                                        { "vinyl", P }, { "boom", W }, { "rev", W } };
+        constexpr Term melodicTerms[] = { { "synth", P }, { "chord", P }, { "key", P }, { "piano", I }, { "guitar", I }, { "guit", P },
+                                          { "gtr", W }, { "egt", W }, { "melod", P }, { "lead", P }, { "arp", P }, { "string", P },
+                                          { "horn", P }, { "brass", P }, { "organ", P }, { "rhodes", P }, { "harp", P }, { "pluck", P },
+                                          { "violin", I }, { "viola", P }, { "cello", I }, { "flute", P }, { "sax", P }, { "trumpet", P },
+                                          { "clarinet", P }, { "pad", P }, { "riff", P }, { "rif", W }, { "instrument", P }, { "bass", W },
+                                          { "basses", W }, { "bassline", P }, { "orch", P }, { "ensemble", P }, { "marimba", P },
+                                          { "vibes", W }, { "mallet", P } };
+        constexpr Term musicTerms[] = { { "music", I }, { "song", P }, { "jukebox", I }, { "classical", I }, { "symphon", P },
+                                        { "orchestr", P }, { "opera", W }, { "album", P } };
+        constexpr Term loopTerms[]  = { { "loop", I }, { "break", P }, { "bpm", P }, { "amen", P }, { "fill", P }, { "dl", W } };
+        constexpr Term loopWeak[]   = { { "beat", W }, { "beats", W }, { "groove", P }, { "tops", W } };
+        constexpr Term drumTerms[]  = { { "drums", W }, { "drm", W }, { "dl", W }, { "amen", P }, { "break", P }, { "fill", P },
+                                        { "tops", W }, { "rhythm", P }, { "drumloop", I }, { "beat", W }, { "beats", W } };
 
-        // Rules for generic sample packs, applied to a name or a folder path.
-        uint8_t categoriseText (std::string_view s) noexcept
+        bool isTempoNumber (std::string_view w) noexcept
         {
-            static constexpr std::string_view melodic[] = { "bass loop", "bassloop", "synth", "pad loop", "chord", "keys", "piano",
-                                                             "guitar", "melod", "lead", "arp", "string", "horn", "brass", "organ" };
-            static constexpr std::string_view breakTokens[] = { "break", "amen", "drum loop", "drumloop", "drum_loop", "beat loop",
-                                                                 "groove", "bpm", "loop", "beats" };
-            static constexpr std::string_view kick[] = { "kick", "kik", "bassdrum", "bass drum", "bass_drum" };
-            static constexpr std::string_view kickWords[] = { "bd", "kck", "kd" };
-            static constexpr std::string_view snare[] = { "snare", "snr", "clap", "rimshot" };
-            static constexpr std::string_view snareWords[] = { "sd", "sn", "clp", "cp" };
-            static constexpr std::string_view hat[] = { "hihat", "hi hat", "hi-hat", "hi_hat", "hat" };
-            static constexpr std::string_view hatWords[] = { "hh", "oh", "ch", "ohh", "chh", "hhc", "hho" };
-            static constexpr std::string_view cym[] = { "crash", "ride", "cymbal", "splash", "china" };
-            static constexpr std::string_view cymWords[] = { "cym", "cy", "rd", "cr" };
-            static constexpr std::string_view perc[] = { "perc", "tom", "conga", "bongo", "shaker", "tamb", "cowbell", "clave",
-                                                         "rim", "woodblock", "block", "snap", "click", "guiro", "cabasa", "timbale",
-                                                         "agogo", "triangle", "bell", "tabla", "djembe", "metal hit", "knock", "stick" };
-            static constexpr std::string_view vox[] = { "vox", "vocal", "voice", "acapella", "acappella", "shout", "chant", "speech",
-                                                        "spoken", "phrase", "adlib", "ad lib", "ad-lib", "talk", "dialog", "dialogue",
-                                                        "scream", "yell", "hey", "choir" };
-            static constexpr std::string_view fx[] = { "fx", "sfx", "riser", "uplifter", "downlifter", "impact", "sweep", "noise",
-                                                       "whoosh", "swoosh", "scratch", "explosion", "gun", "laser", "zap", "glitch",
-                                                       "siren", "atmos", "foley", "boom", "transition", "drop", "reverse", "rewind",
-                                                       "vinyl", "tape stop", "stab", "hit", "radio" };
-
-            const bool melodicLoop = hasAny (s, melodic);
-            if (hasAny (s, breakTokens))
+            if (w.size() < 2 || w.size() > 3 || w[0] < '0' || w[0] > '9')
+                return false;
+            int v = 0;
+            for (auto c : w)
             {
-                if (melodicLoop)
-                    return catNone;
-                if (has (s, "vocal") || has (s, "vox"))
-                    return catVox;
-                return catBreak;
+                if (c < '0' || c > '9')
+                    return false;
+                v = v * 10 + (c - '0');
             }
-            if (hasAny (s, kick) || hasAnyWord (s, kickWords))   return catKick;
-            if (hasAny (s, snare) || hasAnyWord (s, snareWords)) return catSnare;
-            if (hasAny (s, hat) || hasAnyWord (s, hatWords))     return catHat;
-            if (hasAny (s, cym) || hasAnyWord (s, cymWords))     return catCymbal;
-            if (hasAny (s, vox))                                 return catVox;
-            if (hasAny (s, perc))                                return catPerc;
-            if (hasAny (s, fx))                                  return catFx;
-            return catNone;
+            return v >= 60 && v <= 200;
+        }
+
+        // A musical key: "c#", "ebm", "dmi", "bmin", "minor"; a bare letter only beside a tempo ("_E_128_BPM").
+        bool isKey (const std::vector<std::string_view>& w, size_t i) noexcept
+        {
+            const auto t = w[i];
+            if (t == "min" || t == "maj" || t == "minor" || t == "major")
+                return true;
+            if (t.empty() || t[0] < 'a' || t[0] > 'g')
+                return false;
+            size_t k = 1;
+            bool sharp = false;
+            if (k < t.size() && t[k] == '#')
+            {
+                sharp = true;
+                ++k;
+            }
+            else if (k < t.size() && t[k] == 'b' && t.size() > 2)
+                ++k;   // a flat, only when a mode follows ("ebm")
+            const auto mode = t.substr (k);
+            const bool hasMode = mode == "m" || mode == "mi" || mode == "min" || mode == "maj" || mode == "minor" || mode == "major";
+            if (! mode.empty() && ! hasMode)
+                return false;
+            if (sharp || hasMode)
+                return true;
+            auto tempo = [&w] (size_t j) { return j < w.size() && (isTempoNumber (w[j]) || startsWith (w[j], "bpm")); };
+            return tempo (i + 1) || (i > 0 && tempo (i - 1));
+        }
+
+        // A bare number in the name that makes the file a whole number of beats (minBeats or more, within 3 %).
+        bool tempoFitsLength (const std::vector<std::string_view>& w, float seconds, double minBeats = 4.0) noexcept
+        {
+            for (auto t : w)
+            {
+                if (! isTempoNumber (t))
+                    continue;
+                int v = 0;
+                for (auto c : t)
+                    v = v * 10 + (c - '0');
+                const double beats = (double) seconds * v / 60.0;
+                const double whole = std::round (beats);
+                if (whole >= minBeats && std::abs (beats - whole) / whole < 0.03)
+                    return true;
+            }
+            return false;
+        }
+
+        struct Flags
+        {
+            bool kick = false, kickA = false, kick808 = false, tom = false, snare = false, snareA = false, hat = false, hatA = false,
+                 cym = false, perc = false, percWeak = false, vox = false, fx = false, fxWeak = false, melodic = false, music = false,
+                 loop = false, loopWeak = false, drums = false, key = false, oneShot = false;
+        };
+
+        Flags scan (const Text& t) noexcept
+        {
+            Flags f;
+            f.kick = hasAny (t, kickTerms);
+            f.kickA = hasAny (t, kickAbbr);
+            f.tom = hasAny (t, tomTerms);
+            f.snare = hasAny (t, snareTerms);
+            f.snareA = hasAny (t, snareAbbr);
+            f.hat = hasAny (t, hatTerms);
+            f.hatA = hasAny (t, hatAbbr);
+            f.cym = hasAny (t, cymTerms);
+            f.perc = hasAny (t, percTerms);
+            f.percWeak = hasAny (t, percWeak);
+            f.vox = hasAny (t, voxTerms);
+            f.fx = hasAny (t, fxTerms);
+            f.fxWeak = hasAny (t, fxWeak);
+            f.melodic = hasAny (t, melodicTerms);
+            f.music = hasAny (t, musicTerms) && t.lower.find ("musicradar") == std::string::npos;
+            f.loop = hasAny (t, loopTerms);
+            f.loopWeak = hasAny (t, loopWeak);
+            f.drums = hasAny (t, drumTerms);
+
+            const auto& w = t.words;
+            for (size_t i = 0; i < w.size(); ++i)
+            {
+                const bool next = i + 1 < w.size();
+                if (w[i] == "808")
+                    f.kick808 = true;
+                if (w[i] == "bass" && next && startsWith (w[i + 1], "drum"))
+                    f.kick = true;
+                if (w[i] == "drum" && next && (startsWith (w[i + 1], "loop") || w[i + 1] == "machine" || startsWith (w[i + 1], "beat")
+                                               || startsWith (w[i + 1], "break") || startsWith (w[i + 1], "groove")))
+                    f.drums = true;
+                if (w[i].size() >= 6 && (endsWith (w[i], "beat") || endsWith (w[i], "beats")))
+                    f.loopWeak = f.drums = true;
+                if (isKey (w, i))
+                    f.key = true;
+                if (w[i] == "oneshot" || w[i] == "oneshots" || w[i] == "os" || (w[i] == "one" && next && startsWith (w[i + 1], "shot")))
+                    f.oneShot = true;
+            }
+            if (f.kick || f.kickA || f.snare || f.snareA || f.hat || f.hatA || f.cym || f.tom || f.perc)
+                f.drums = true;
+            return f;
         }
 
         bool isVoiceFolder (std::string_view folder) noexcept
@@ -164,36 +349,113 @@ namespace labx0
         // STALKER sources: voices are VOX, everything else is an effect unless its name says more.
         if (root == Root::zone || root == Root::pack)
         {
-            if (isVoiceFolder (folder) || name.substr (0, 3) == "vo_")
+            const auto lowerName = lowerAscii (name);
+            const auto lowerFolder = lowerAscii (folder);
+            if (isVoiceFolder (lowerFolder) || lowerName.substr (0, 3) == "vo_")
                 return catVox;
-            if (has (folder, "/music") || has (folder, "music/"))
+            if (has (lowerFolder, "/music") || has (lowerFolder, "music/"))
                 return catNone;
             return catFx;
         }
 
-        // The name decides first, then the deepest folder, then the whole path.
-        const auto stem = name.substr (0, name.rfind ('.'));
-        uint8_t c = categoriseText (stem);
-
-        if (c == catNone)
+        // The name, then each folder from the deepest up.
+        std::vector<Text> texts;
+        texts.reserve (24);
+        texts.emplace_back (name.substr (0, name.rfind ('.')));
+        for (auto rest = folder; ! rest.empty() && texts.size() < 24;)
         {
-            const auto slash = folder.rfind ('/');
-            const auto last = slash == std::string_view::npos ? folder : folder.substr (slash + 1);
-            c = categoriseText (last);
-            if (c == catNone)
-                c = categoriseText (folder);
+            const auto slash = rest.rfind ('/');
+            texts.emplace_back (slash == std::string_view::npos ? rest : rest.substr (slash + 1));
+            rest = slash == std::string_view::npos ? std::string_view() : rest.substr (0, slash);
+        }
+        std::vector<Flags> flags;
+        flags.reserve (texts.size());
+        for (const auto& t : texts)
+            flags.push_back (scan (t));
+
+        const Flags& own = flags[0];
+        auto anyLevel = [&flags] (bool Flags::* member)
+        {
+            for (const auto& f : flags)
+                if (f.*member)
+                    return true;
+            return false;
+        };
+        const bool musicContext = anyLevel (&Flags::music);
+
+        // Long recordings (30 s and more): music, breaks and battle-record beats, speech, ambiences.
+        if (seconds >= 30.0f)
+        {
+            if (musicContext)                return catNone;
+            if (anyLevel (&Flags::drums))    return catBreak;
+            if (anyLevel (&Flags::vox))      return catVox;
+            if (anyLevel (&Flags::fx))       return catFx;
+            return catNone;
         }
 
-        if (seconds > 0.0f)
+        // Loop or one-shot. A loop says so in its name (loop, break, bpm, a tempo that fits its length) or sits in a
+        // loop folder; "beats" alone (often a producer's name) needs some length and no one-shot folder around it.
+        auto oneShotWord = [] (const Flags& f) { return f.kick || f.kick808 || f.snare || f.hat || f.cym || f.tom || f.perc || f.vox; };
+        const bool oneShotFolder = flags.size() > 1 && oneShotWord (flags[1]) && ! flags[1].loop;
+        // A loop folder up to three levels above, unless a one-shot folder ("One-shots", "OS") comes first.
+        bool loopFolder = false;
+        for (size_t i = 0; i < std::min<size_t> (flags.size(), 4) && ! flags[i].oneShot; ++i)
+            if (i > 0 && flags[i].loop)
+            {
+                loopFolder = true;
+                break;
+            }
+        // A kick or cymbal with a tempo-like number is still a hit unless it runs 8 beats and 4 s ("808 Heat 170").
+        const bool hitName = own.kick || own.kick808 || own.cym;
+        const bool tempoInName = seconds >= (hitName ? 4.0f : 2.0f) && tempoFitsLength (texts[0].words, seconds, hitName ? 8.0 : 4.0);
+        bool loop = own.loop || tempoInName
+                 || (own.loopWeak && seconds >= 2.0f && ! oneShotFolder)
+                 || (loopFolder && (seconds < 0.0f || seconds >= 1.0f) && ! oneShotWord (own));
+        if (seconds > 0.0f && seconds < 0.6f)
+            loop = false;
+
+        if (loop)
         {
-            // A long file filed with one-shots is a loop; a tiny file called a loop is a hit.
-            if (c == catBreak && seconds < 0.6f)
-                c = categoriseText (folder) == catBreak ? catPerc : categoriseText (folder);
-            else if ((c == catKick || c == catSnare || c == catHat || c == catPerc) && seconds > 4.0f
-                     && categoriseText (stem) == catNone)
-                c = catBreak;
+            if (anyLevel (&Flags::drums))   return catBreak;
+            if (own.vox)                    return catVox;
+            if (own.fx)                     return catFx;
+            if (own.melodic || own.key)     return catNone;
+            if (own.fxWeak)                 return catFx;
+            if (flags.size() > 1 && flags[1].vox)                    return catVox;
+            if (flags.size() > 1 && (flags[1].fx || flags[1].fxWeak)) return catFx;
+            return catNone;
         }
-        return c;
+
+        // One-shot: the first level that names something decides. Two-letter abbreviations ("oh", "sd") do not count
+        // in a music folder, where they are only words of a song title.
+        constexpr int undecided = -1, noCategory = -2;
+        auto decide = [musicContext] (const Flags& f, bool isName)
+        {
+            const bool abbreviations = ! (musicContext && isName);
+            if (f.tom)                                 return (int) catPerc;   // "rack tom - snares on"
+            if (f.kick || (abbreviations && f.kickA))  return (int) catKick;
+            if (f.snare || (abbreviations && f.snareA)) return (int) catSnare;
+            if (f.hat || (abbreviations && f.hatA))    return (int) catHat;
+            if (f.cym)                                 return (int) catCymbal;
+            if (f.perc)                                return (int) catPerc;
+            if (f.kick808)                             return (int) catKick;    // after the others: "808 clap" is a clap
+            if (f.vox)                                 return (int) catVox;
+            if (f.fx)                                  return (int) catFx;
+            if (f.melodic || f.music)                  return noCategory;
+            if (f.percWeak)                            return (int) catPerc;
+            if (f.fxWeak)                              return (int) catFx;
+            return undecided;
+        };
+        int c = undecided;
+        size_t level = 0;
+        for (; level < flags.size() && c == undecided; ++level)
+            c = decide (flags[level], level == 0);
+        if (c < 0)
+            return catNone;
+        // A long file filed with snare, hat or percussion one-shots is a loop or a fill.
+        if (level > 1 && seconds > 4.0f && (c == catSnare || c == catHat || c == catPerc))
+            return catBreak;
+        return (uint8_t) c;
     }
 
     //==============================================================================
@@ -457,7 +719,7 @@ namespace labx0
     bool readAudioHeader (const juce::File& file, IndexEntry& e)
     {
         e.flags |= flagHeader;
-        juce::FileInputStream in (file);
+        juce::FileInputStream in (longPathSafe (file));
         if (! in.openedOk())
             return false;
 
@@ -601,7 +863,8 @@ namespace labx0
     Library::Library()
         : juce::Thread ("LAB X-0 library")
     {
-        settings = std::make_unique<juce::PropertiesFile> (settingsOptions());
+        settings = settingsFileOverride != juce::File() ? std::make_unique<juce::PropertiesFile> (settingsFileOverride, settingsOptions())
+                                                         : std::make_unique<juce::PropertiesFile> (settingsOptions());
 
         auto saved = [this] (Root r) { return juce::File (settings->getValue (rootKey (r))); };
         const auto user = saved (Root::user);
@@ -906,7 +1169,7 @@ namespace labx0
             if ((e.flags & flagHeader) == 0)
             {
                 readAudioHeader (folder.getChildFile (index->relativePath (e).replace ("/", "\\")), e);
-                e.category = categorise (index->nameLower (e), index->text->foldersLower[(size_t) e.folder], r, e.seconds);
+                e.category = categorise (index->nameUtf8 (e), index->text->folders[(size_t) e.folder].toStdString(), r, e.seconds);
                 ++sincePublish;
             }
             headersDone[i].store (++done);
@@ -956,7 +1219,7 @@ namespace labx0
             stack.pop_back();
 
             std::vector<juce::String> files, dirs;
-            for (const auto& entry : juce::RangedDirectoryIterator (current.dir, false, "*", juce::File::findFilesAndDirectories))
+            for (const auto& entry : juce::RangedDirectoryIterator (longPathSafe (current.dir), false, "*", juce::File::findFilesAndDirectories))
             {
                 const auto name = entry.getFile().getFileName();
                 if (entry.isDirectory())
@@ -977,7 +1240,7 @@ namespace labx0
                 const auto folderIndex = (uint32_t) text->folders.size();
                 text->folders.push_back (current.rel);
                 text->foldersLower.push_back (lowerUtf8 (current.rel));
-                const auto& folderLower = text->foldersLower.back();
+                const auto folderUtf8 = current.rel.toStdString();
 
                 for (const auto& name : files)
                 {
@@ -1005,7 +1268,7 @@ namespace labx0
                         e.sampleRateK = k->sampleRateK;
                     }
 
-                    e.category = categorise (std::string_view (text->namesLower.data() + e.nameOffset, e.nameLength), folderLower, r, e.seconds);
+                    e.category = categorise (std::string_view (text->names.data() + e.nameOffset, e.nameLength), folderUtf8, r, e.seconds);
                     index->entries.push_back (e);
                     if (found != nullptr)
                         found->store (++count);
@@ -1029,7 +1292,7 @@ namespace labx0
                 if ((e.flags & flagHeader) == 0)
                 {
                     readAudioHeader (folder.getChildFile (index->relativePath (e).replace ("/", "\\")), e);
-                    e.category = categorise (index->nameLower (e), text->foldersLower[(size_t) e.folder], r, e.seconds);
+                    e.category = categorise (index->nameUtf8 (e), text->folders[(size_t) e.folder].toStdString(), r, e.seconds);
                 }
                 if (headers != nullptr)
                     headers->store (++done);

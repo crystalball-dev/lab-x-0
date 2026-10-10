@@ -17,18 +17,28 @@ namespace labx0
         int silenceDecodeBursts (float* l, float* r, int length, double sampleRate)
         {
             const int pad = std::max (1, (int) (sampleRate * 0.010));
+            auto bad = [l, r] (int i)
+            {
+                return ! std::isfinite (l[i]) || ! std::isfinite (r[i]) || std::abs (l[i]) > 16.0f || std::abs (r[i]) > 16.0f;
+            };
+            // Find the whole burst first (bad samples closer than the margin belong to one), then silence it: zeroing
+            // as we go would hide the rest of the burst and cut the margin after it short.
             int bursts = 0, clearedUntil = -1;
             for (int i = 0; i < length; ++i)
             {
-                const bool bad = ! std::isfinite (l[i]) || ! std::isfinite (r[i]) || std::abs (l[i]) > 16.0f || std::abs (r[i]) > 16.0f;
-                if (! bad)
+                if (! bad (i))
                     continue;
+                int last = i;
+                for (int k = i + 1; k < length && k <= last + pad; ++k)
+                    if (bad (k))
+                        last = k;
                 ++bursts;
                 const int from = std::max (clearedUntil + 1, i - pad);
-                const int to = std::min (length - 1, i + pad);
+                const int to = std::min (length - 1, last + pad);
                 for (int k = from; k <= to; ++k)
                     l[k] = r[k] = 0.0f;
-                clearedUntil = std::max (clearedUntil, to);
+                clearedUntil = to;
+                i = to;
             }
             return bursts;
         }
@@ -206,7 +216,8 @@ namespace labx0
 
         const auto name = request.ref.fileName();
         const auto file = library.resolve (request.ref);
-        if (file == juce::File())
+        // A root that is set but gone (unplugged drive, moved library) names the library, not the file.
+        if (file == juce::File() || (request.ref.root != Root::none && ! library.getRoot (request.ref.root).isDirectory()))
             return fail (Status::missingRoot, juce::String (rootTag (request.ref.root)) + " LIBRARY NOT FOUND / SET FOLDER");
 
         setStatus (slot, Status::loading, "LOADING " + request.ref.displayName().toUpperCase());
@@ -225,17 +236,17 @@ namespace labx0
         setStatus (slot, Status::ready, text);
     }
 
-    SampleBank::LoadResult SampleBank::decode (const juce::File& file, double offsetSeconds, bool analyse, double hostTempo,
+    SampleBank::LoadResult SampleBank::decode (const juce::File& requestedFile, double offsetSeconds, bool analyse, double hostTempo,
                                                const std::function<bool()>& shouldAbort)
     {
         LoadResult result;
-        const auto name = file.getFileName();
-        const bool longPath = file.getFullPathName().length() > 259;
+        const auto name = requestedFile.getFileName();
+        const auto file = longPathSafe (requestedFile);
 
         if (! file.existsAsFile())
         {
             result.status = Status::missingFile;
-            result.message = (longPath ? "PATH TOO LONG: " : "FILE NOT FOUND: ") + name;
+            result.message = "FILE NOT FOUND: " + name;
             return result;
         }
 
@@ -251,7 +262,7 @@ namespace labx0
             IndexEntry probe;
             readAudioHeader (file, probe);
             result.status = (probe.flags & flagUnsupported) ? Status::unsupported : Status::failed;
-            result.message = ((probe.flags & flagUnsupported) ? "UNSUPPORTED FORMAT: " : (longPath ? "PATH TOO LONG: " : "UNREADABLE: ")) + name;
+            result.message = ((probe.flags & flagUnsupported) ? "UNSUPPORTED FORMAT: " : "UNREADABLE: ") + name;
             return result;
         }
         if (reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0 || reader->numChannels == 0)

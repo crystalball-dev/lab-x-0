@@ -73,8 +73,26 @@ namespace labx0::analysis
         if (top <= 1.0e-6f)
             return out;
 
-        const int lastPosition = -1;
-        juce::ignoreUnused (lastPosition);
+        const double sampleRate = env.frameRate * env.hop;
+        const int block = std::max (8, (int) (0.0005 * sampleRate));   // 0.5 ms peak envelope
+        const int lookBack = 20 * block;   // 10 ms: room to walk back to the start of a rise
+        const int energyWindow = (int) (0.01 * sampleRate);
+        std::vector<float> blocks;
+
+        // Energy of [a, b), plain or first-differenced (which favours the high band, where attacks live).
+        auto energy = [mono, length] (int a, int b, bool highPass)
+        {
+            a = std::clamp (a, 1, length);
+            b = std::clamp (b, 1, length);
+            double sum = 0.0;
+            for (int s = a; s < b; ++s)
+            {
+                const double x = highPass ? (double) mono[s] - (double) mono[s - 1] : (double) mono[s];
+                sum += x * x;
+            }
+            return sum;
+        };
+
         for (int i = 1; i < frames - 1; ++i)
         {
             const float v = novelty[(size_t) i];
@@ -87,33 +105,90 @@ namespace labx0::analysis
             if (! isPeak)
                 continue;
 
-            // The flux of frame i compares windows centred hop samples apart: find where the attack starts.
-            const int centre = i * env.hop + env.fftSize / 2;
-            const int from = std::clamp (centre - (3 * env.hop) / 2 - env.fftSize / 4, 0, length - 1);
-            const int to = std::clamp (centre + env.hop / 2, 0, length - 1);
-            float peak = 0.0f;
-            for (int s = from; s <= to; ++s)
-                peak = std::max (peak, std::abs (mono[s]));
-            int pos = from;
-            if (peak > 0.0f)
+            // Frame i gained over frame i-1 where its Hann window gained weight: an attack between about the window
+            // centre and its end (the log flux peaks as soon as a hit enters the window). Search that span, one hop
+            // wider on each side, for the sharpest rise of the peak envelope.
+            const int from = std::clamp (i * env.hop + env.fftSize / 2 - env.hop, 0, length);
+            const int to = std::clamp (i * env.hop + env.fftSize + env.hop, 0, length);
+            const int first = std::max (0, from - lookBack);
+            const int numBlocks = (to - first) / block;
+            if (numBlocks < 2)
+                continue;
+            blocks.assign ((size_t) numBlocks, 0.0f);
+            float windowPeak = 0.0f;
+            for (int b = 0; b < numBlocks; ++b)
             {
-                // The loudest point of the window, then back to where the level first passed a fifth of it.
-                int loudest = from;
-                for (int s = from; s <= to; ++s)
-                    if (std::abs (mono[s]) >= peak)
-                    {
-                        loudest = s;
-                        break;
-                    }
-                pos = loudest;
-                const int floorStart = std::max (from, loudest - (int) (0.03 * env.frameRate * env.hop));
-                while (pos > floorStart && std::abs (mono[pos - 1]) > 0.2f * peak)
-                    --pos;
-                // Walk back over the quiet run-up to the last zero crossing.
-                while (pos > floorStart && mono[pos - 1] * mono[pos] > 0.0f)
-                    --pos;
+                float m = 0.0f;
+                for (int s = first + b * block, e = s + block; s < e; ++s)
+                    m = std::max (m, std::abs (mono[s]));
+                blocks[(size_t) b] = m;
+                if (first + b * block >= from)
+                    windowPeak = std::max (windowPeak, m);
             }
-            pos = std::max (0, pos - (int) (0.001 * env.frameRate * env.hop));   // 1 ms pre-roll
+            if (windowPeak <= 1.0e-6f)
+                continue;
+
+            const float floorLevel = 0.02f * windowPeak;
+            float bestRise = 0.0f;
+            int attackBlock = -1;
+            for (int b = 1; b < numBlocks; ++b)
+            {
+                if (first + b * block < from)
+                    continue;
+                float prior = 0.0f;
+                for (int k = std::max (0, b - 6); k < b; ++k)
+                    prior = std::max (prior, blocks[(size_t) k]);
+                const float rise = blocks[(size_t) b] / (prior + floorLevel);
+                if (rise > bestRise)
+                {
+                    bestRise = rise;
+                    attackBlock = b;
+                }
+            }
+            if (attackBlock < 0 || bestRise < 1.1f)
+                continue;   // no rise in the waveform: the end of a sound, not an attack
+
+            // The sharpest rise may be the second stroke of a flam or the body of a hit that started softly: walk back
+            // (at most 10 ms, never into the previous slice) to the start of the rise that leads to it. The rise
+            // starts after the quietest block before it, where the level first climbs a quarter of the way up.
+            const int earliest = out.empty() ? 0 : out.back().position + (int) (0.005 * sampleRate);
+            float height = 0.0f;
+            for (int b = attackBlock; b < std::min (numBlocks, attackBlock + 4); ++b)
+                height = std::max (height, blocks[(size_t) b]);
+            int valley = attackBlock;
+            for (int b = attackBlock - 1; b >= std::max (0, attackBlock - 20); --b)
+            {
+                if (first + b * block < earliest)
+                    break;
+                if (blocks[(size_t) b] < blocks[(size_t) valley])
+                    valley = b;
+            }
+            const float level = blocks[(size_t) valley] + 0.25f * (height - blocks[(size_t) valley]);
+            int startBlock = attackBlock;
+            for (int b = valley + 1; b <= attackBlock; ++b)
+                if (blocks[(size_t) b] > level)
+                {
+                    startBlock = b;
+                    break;
+                }
+
+            // The first sample of the attack: where the level passes that quarter mark.
+            const int blockStart = first + startBlock * block;
+            int attack = blockStart;
+            for (int s = std::max (0, blockStart - block); s < std::min (length, blockStart + block); ++s)
+                if (std::abs (mono[s]) > level)
+                {
+                    attack = s;
+                    break;
+                }
+
+            // An onset adds energy in the plain or the high-passed signal; a truncated tone only spreads its spectrum.
+            const bool addsEnergy = energy (attack, attack + energyWindow, false) > energy (attack - energyWindow, attack, false)
+                                 || energy (attack, attack + energyWindow, true) > energy (attack - energyWindow, attack, true);
+            if (! addsEnergy)
+                continue;
+
+            const int pos = std::max (0, attack - (int) (0.001 * sampleRate));   // 1 ms pre-roll
             if (! out.empty() && pos <= out.back().position)
                 continue;
             out.push_back ({ pos, v / top });

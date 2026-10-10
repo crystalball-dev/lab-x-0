@@ -90,6 +90,49 @@ namespace labx0::dsp
     };
 
     //==============================================================================
+    // Linkwitz-Riley 8th order: two 4th-order Butterworths in series per band (48 dB/oct). SUB SAFE uses it so the band
+    // an octave below the split leaks under 0.4 % into the processed band. Low and high still sum to an all-pass.
+    struct LR8
+    {
+        SVF first;
+        std::array<SVF, 3> low, high;
+
+        void reset() noexcept
+        {
+            first.reset();
+            for (auto& f : low)  f.reset();
+            for (auto& f : high) f.reset();
+        }
+
+        void set (float hz, float sampleRate) noexcept
+        {
+            const float g = SVF::gFor (hz, sampleRate);
+            constexpr float k1 = 1.84775907f, k2 = 0.76536686f;   // Butterworth 4: Q 0.541 and 1.307
+            first.set (g, k1);
+            low[0].set (g, k2);  low[1].set (g, k1);  low[2].set (g, k2);
+            high[0].set (g, k2); high[1].set (g, k1); high[2].set (g, k2);
+        }
+
+        void process (float x, float& lowOut, float& highOut) noexcept
+        {
+            float lp, bp, hp, a, b, c;
+            first.process (x, lp, bp, hp);
+            for (auto& f : low)
+            {
+                f.process (lp, a, b, c);
+                lp = a;
+            }
+            for (auto& f : high)
+            {
+                f.process (hp, a, b, c);
+                hp = c;
+            }
+            lowOut = lp;
+            highOut = hp;
+        }
+    };
+
+    //==============================================================================
     // MULTIBAND: three LR4 bands, each pushed down above a threshold and pulled up below another, OTT style.
     // DEPTH blends inside the band split (dry bands + processed bands), so no comb filtering against the dry path.
     class Multiband
@@ -516,7 +559,7 @@ namespace labx0::dsp
         std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
         Slam slam;
         Clipper clipper;
-        LR4 splitL, splitR;
+        LR8 splitL, splitR;
         std::array<float, 2 * 4096> lowBuffer {}, dryL {}, dryR {};
         float osRate = 96000.0f, lastSplit = -1.0f, splitMix = 0.0f;
     };

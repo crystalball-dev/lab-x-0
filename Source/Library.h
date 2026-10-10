@@ -28,6 +28,18 @@ namespace labx0
         }
     }
 
+    // Windows refuses paths of 260 characters or more unless they carry the \\?\ prefix (the user's legacy packs hold
+    // 424 such files, all spoken-word recordings). JUCE hands the string straight to the wide Win32 calls.
+    inline juce::File longPathSafe (const juce::File& file)
+    {
+       #if JUCE_WINDOWS
+        const auto path = file.getFullPathName();
+        if (path.length() >= 260 && ! path.startsWith ("\\\\?\\"))
+            return juce::File (path.startsWith ("\\\\") ? "\\\\?\\UNC\\" + path.substring (2) : "\\\\?\\" + path);
+       #endif
+        return file;
+    }
+
     // A sample reference survives a moved library: it stores the root and the path inside it. Files outside every
     // root keep their absolute path.
     struct SampleRef
@@ -90,6 +102,10 @@ namespace labx0
         {
             return std::string_view (text->namesLower.data() + e.nameOffset, e.nameLength);
         }
+        std::string_view nameUtf8 (const IndexEntry& e) const
+        {
+            return std::string_view (text->names.data() + e.nameOffset, e.nameLength);
+        }
         const juce::String& folderOf (const IndexEntry& e) const { return text->folders[(size_t) e.folder]; }
         juce::String relativePath (const IndexEntry& e) const
         {
@@ -110,7 +126,9 @@ namespace labx0
     // Lowercase tokens, AND-matched against file name and folder path.
     std::vector<int> runQuery (const RootIndex& index, const Query& query, const std::vector<juce::String>* favourites);
 
-    uint8_t categorise (std::string_view nameLower, std::string_view folderLower, Root root, float seconds);
+    // Category from the file name, its folders (deepest first) and its length (-1 when unknown). Name and folder are
+    // UTF-8 in their original case: capitals split run-together words ("YChopHat" has a hat, "Phat Phrog" has none).
+    uint8_t categorise (std::string_view name, std::string_view folder, Root root, float seconds);
 
     // Header facts read without decoding: length, channels, rate, ACID tempo. Exact for WAV, AIFF, FLAC and Ogg
     // (including FL's Ogg-in-WAV); MP3 is estimated from its first frame (or exact with a Xing/Info header).
@@ -162,6 +180,7 @@ namespace labx0
         static std::shared_ptr<RootIndex> loadCache (const juce::File& file, Root r, const juce::File& expectedFolder);
         juce::File cacheFileFor (Root r) const;
         static juce::File settingsFolder();
+        static inline juce::File settingsFileOverride;   // tests: use this settings file instead of the user's
 
         juce::PropertiesFile& getSettings() noexcept { return *settings; }
 

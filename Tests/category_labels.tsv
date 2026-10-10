@@ -1,0 +1,244 @@
+# LAB X-0 category test (Tests/run_tests.py test 13): 240 files drawn at random from the user's FL Studio
+# legacy packs, at most three per top-level pack, labelled by hand from the path and length alone.
+# Columns: label, path inside the library, seconds. Labels: KICK SNARE (claps too) HAT CYM PERC (toms too)
+# BREAK (drum loops and breaks) FX VOX NONE (melodic or musical material, or names that say nothing).
+# One of the 240 sampled names was dropped for its wording (a battle-record track title).
+KICK	808 Heat/808 Heat 170.wav	1.80
+KICK	808 Heat/808 Heat 180.wav	3.80
+KICK	808_drum_kit/kicks/808-Kicks14.wav	0.76
+KICK	808_drum_kit/kicks/808-Kicks17.wav	0.50
+KICK	808_drum_kit/kicks/808-Kicks35.wav	2.00
+BREAK	All The Breaks-20250923T180149Z-1-001/All The Breaks/Dyke _ The Blazers - Let A Woman Be A Woman, Let A Man Be A Man.wav	9.20
+KICK	Ambient Electronic samples/Ambient Electronic Samples mono/Kicks/XBase09_Kick08.wav	0.33
+SNARE	Ambient Electronic samples/Ambient Electronic Samples stereo/Snares/Snares_082.wav	0.52
+SNARE	Ambient Electronic samples/Ambient Electronic Samples stereo/Snares/XBase09_Snare18.wav	0.13
+BREAK	Bass Explorer Presents 101 Drum & Bass Drum Loops/Fearful (Diffrent Music) - Party Hat 1 [172bpm].wav	5.58
+BREAK	Bass Explorer Presents 101 Drum & Bass Drum Loops/Fox Stevenson - Big Punch 2 [175bpm].wav	5.49
+BREAK	Bass Explorer Presents 101 Drum & Bass Drum Loops/TwoThirds - Bopstep [174bpm].wav	5.52
+SNARE	Boominati Drum Kit (Hipstrumentals.com)/Snares/Metro Plug_Snare.wav	0.16
+SNARE	Boominati Drum Kit (Hipstrumentals.com)/Snares/Trapaholic_Snare.wav	0.12
+BREAK	CIRCLES FREE DRUM SAMPLES & LOOPS 2024/LOOPS/DEAD VOL 2 LOOPS/99_SPEEDBALL_LOOP_A.wav	9.70
+BREAK	CIRCLES FREE DRUM SAMPLES & LOOPS 2024/LOOPS/VINTAGE DRUM MACHINE LOOPS/170 CHA CHA.wav	11.29
+KICK	Dance/DNC_Kick_3.wav	1.00
+SNARE	Dance/DNC_Snare_3.wav	0.50
+SNARE	Drums/Kits/Drum Kit 03/Overhead Snare B R_003ogg.wav	1.00
+PERC	Drums/Kits/Drum Kit 06/FLS_Tomn 06.wav	1.00
+SNARE	Echo Sound Works House Samples/Drums/Claps/ESW House - Clap 05.wav	0.59
+FX	Echo Sound Works House Samples/Drums/FX/ESW House - Reverse 03.wav	8.76
+BREAK	Echo Sound Works House Samples/Loops/Fills/ESW House Perc Fill 05 - 102 BPM.wav	5.39
+SNARE	FPC/Snare Drums/FPC_SnrC_3_3.wav	0.50
+SNARE	FPC/Snare Drums/FPC_Snr_2L004.wav	0.50
+PERC	FPC/Toms/FPC_Tom_GtomHi_001.wav	1.50
+FX	FX/FX_EH.wav	7.00
+HAT	FreeDrumKits.net - East Coast Drum Kit/Hat114.wav	0.10
+NONE	FreeDrumKits.net - Eminem Drum Kit/Dr. Dre Drum Kit Vol 3/DRE3-1CD 019.wav	0.27
+NONE	FreeDrumKits.net - Eminem Drum Kit/Dr. Dre Drum Kit Vol 3/DRE3-3CD 008.wav	0.53
+KICK	FreeDrumKits.net - Goon Related Drum Kit/Kick's/Dopemane Kick.mp3	1.65
+SNARE	FreeDrumKits.net - Goon Related Drum Kit/Snare's/South Side Snare.mp3	1.65
+VOX	FreeDrumKits.net - Goon Related Drum Kit/Vox's/What.mp3	1.65
+NONE	FreeDrumKits.net - Gucci Mane Drum Kit/Sound (133).wav	0.20
+NONE	FreeDrumKits.net - Gucci Mane Drum Kit/Sound (183).wav	0.08
+KICK	FreeDrumKits.net - Hardstyle Drum Kit/Gated Kicks/GTKick(01).wav	0.76
+KICK	FreeDrumKits.net - Hardstyle Drum Kit/Hardstyle Kicks/kick hardstyle (55).wav	0.46
+KICK	FreeDrumKits.net - Jahlil Beats Drum Kit/808's/Jahlil Beats Trunk Banger (4).wav	3.77
+NONE	FreeDrumKits.net - Jahlil Beats Drum Kit/Sounds & Instruments/JB - Sounds & Instruments (31).wav	3.51
+SNARE	FreeDrumKits.net - Jay-Z Drum Kit/Clapz & Snarez/Snare 35.wav	0.16
+SNARE	FreeDrumKits.net - Jay-Z Drum Kit/Clapz & Snarez/Snare 38.wav	0.12
+HAT	FreeDrumKits.net - Johnny Juliano Goonie Drum Kit/Percs/JJ - OpenHiHat1.wav	3.04
+PERC	FreeDrumKits.net - Johnny Juliano Goonie Drum Kit/Percs/JJ - Tom5.wav	1.20
+HAT	FreeDrumKits.net - Johnny Juliano Trap Ghosts Drum Kit/Hats/Hat 4.wav	0.94
+SNARE	FreeDrumKits.net - Johnny Juliano Trap Ghosts Drum Kit/Snares/Snare 12.wav	0.93
+SNARE	FreeDrumKits.net - Johnny Juliano Trap Ghosts Drum Kit/Snares/Snare 6.wav	1.50
+KICK	FreeDrumKits.net - LONDON ON THA TRACK Drum Kit/808s/TrapLife 808_YC.wav	5.85
+HAT	FreeDrumKits.net - LONDON ON THA TRACK Drum Kit/Hats/Trap Hat_YC.wav	1.72
+VOX	FreeDrumKits.net - Lex Luger Drum Kit/Chants (21)/Chant_05.wav	0.30
+HAT	FreeDrumKits.net - Lil Pump Drum Kit/HiHat/HiHat (1)- Mvssi.wav	0.50
+KICK	FreeDrumKits.net - Lil Wayne Drum Kit/Kicks/Kick.wav	0.18
+NONE	FreeDrumKits.net - Lil Wayne Drum Kit/Sounds/loop 1.wav	3.13
+KICK	FreeDrumKits.net - Metro Boomin Drum Kit/BOOMIN 808 3 SHORT.wav	3.00
+PERC	FreeDrumKits.net - Metro Boomin Drum Kit/BOOMIN FREE GUCCI TRIANGLE.wav	0.68
+CYM	FreeDrumKits.net - Mike Will Made It Drum Kit/Lex Trap Crash.wav	3.37
+NONE	FreeDrumKits.net - Mobb Deep Drum Kit/mobb-sound4-qbh.wav	0.30
+HAT	FreeDrumKits.net - Nav XO Drum Kit/HATS/NAV HI HAT 3.wav	0.16
+NONE	FreeDrumKits.net - Nav XO Drum Kit/SOUNDS/NAV PAD HIT.wav	2.86
+NONE	FreeDrumKits.net - Nav XO Drum Kit/SOUNDS/NAV SYNTH 5.wav	3.82
+VOX	FreeDrumKits.net - Pierre Bourne Drum Kit/dirty vox.wav	0.39
+VOX	FreeDrumKits.net - Pierre Bourne Drum Kit/what tag.wav	3.23
+NONE	FreeDrumKits.net - Swiss Beatz Drum Kit/SwizzBeats0026.wav	0.19
+NONE	FreeDrumKits.net - Swiss Beatz Drum Kit/SwizzBeats0063.wav	0.36
+NONE	FreeDrumKits.net - Vintage Hip Hop Drum Kit/RIF1(LD0.WAV	0.86
+SNARE	FreeDrumKits.net - Vybe Beatz Appreciation Drum Kit/Claps/Clap  - Uni.wav	0.18
+VOX	FreeDrumKits.net - Vybe Beatz Appreciation Drum Kit/Vox/Vox - TightScreech.wav	1.10
+NONE	FreeDrumKits.net - WIZ KHALIFA Drum Kit/Loops/Wiz Khalifa - Loop (53).wav	8.02
+SNARE	FreeDrumKits.net - West Coast Drum Kit/Claps & Snares/4.wav	0.24
+KICK	FreeDrumKits.net - West Coast Drum Kit/Kicks/Kick8.wav	2.64
+HAT	FreeDrumKits.net - Wu-Tang Clan Drums/Perkussin/WU_HH_153.wav	0.49
+PERC	FreeDrumKits.net - Wu-Tang Clan Drums/Perkussin/Wu_1p (138).wav	0.95
+HAT	FreeDrumKits.net - XXXTENTACION Drum Kit/X HI HATS/X HIH HAT (5).wav	0.64
+KICK	FreeDrumKits.net - XXXTENTACION Drum Kit/X KICKS/X KICK (2).wav	0.11
+KICK	FreeDrumKits.net - Young Chop Official Drum Kit/DRUMS/Lex808.wav	2.44
+HAT	FreeDrumKits.net - Young Chop Official Drum Kit/DRUMS/YChopHat3.wav	0.08
+KICK	FreeDrumKits.net - Zaytoven Drum Kit/Kicks/808BD_T5D5_TapeSat.wav	0.91
+HAT	HipHop/HIP_Hat.wav	0.09
+NONE	Instruments/Guitar/Guitar/Electric Guitar 01/04 DARK STAR METAL_G2OGG.wav	7.92
+NONE	Instruments/Guitar/Guitar/Electric Guitar 01/33 DARK STAR METAL_D5OGG.wav	3.07
+PERC	JazzFunkKit/Jazz Funk Kit/samples/rack tom - snares on - 5.wav	3.51
+NONE	Jungle Jungle - 1989 to 1999 Samplepack/Bass/Will They Hi Bass.wav	1.80
+NONE	Jungle Jungle - 1989 to 1999 Samplepack/Riffs, Arps & Hits/Dispatch Reich.wav	7.21
+CYM	Kits/Drum Kit 03/Overhead Ridebell2_004ogg.wav	4.50
+KICK	Kits/Drum Kit 07/FLS_Kick 07.wav	0.50
+BREAK	Loops/DL_Electroloop.wav	4.00
+BREAK	Loops/DL_Lectrohaus.wav	4.00
+BREAK	Loops/DL_Synthdrum.wav	4.00
+KICK	Metro Boomin Drum Kit/808s/MB 808 (3).WAV	2.51
+SNARE	ProducerSpot-House-Drums/Claps/House Clap 05.wav	0.42
+FX	Rain Sounds/Sappheiros - Ambient Rain Sounds (Sample Pack) - 05 Rain - 5.mp3	148.24
+PERC	RealDrumkits/RD_VibraSlap.wav	1.77
+BREAK	Scratch Record Vault-20260828T193439Z-1-001/Scratch Record Vault/DJ Troubl - Dub a Breaks v.2/A4 Scratches and Beats Part 1.aif	68.42
+NONE	Scratch Record Vault-20260828T193439Z-1-002/Scratch Record Vault/Unkle Perverts - Tour Disks/b1-unkle-be_there_(guitars).mp3	269.56
+NONE	Scratch Record Vault-20260828T193439Z-1-002/Scratch Record Vault/Unkle Perverts - Tour Disks/e1-unkle-celestial_annihilation_(instrumental).mp3	284.79
+BREAK	Scratch Record Vault-20260828T193439Z-1-003/Scratch Record Vault/Chops - 20 Piece Bucket Breaks/15-chops-meal_b-track_5-ftd.mp3	59.48
+NONE	Scratch Record Vault-20260828T193439Z-1-003/Scratch Record Vault/DJ Pone _ Dirty Sanchez - Buy It Bro/dj pone _ dirty sanchez - buy it bro (side a).mp3	645.28
+BREAK	Scratch Record Vault-20260828T193439Z-1-004/Scratch Record Vault/STD Breaks + The God_s Son In Law Vol.2/12 beat 10.mp3	223.73
+NONE	Scratch Record Vault-20260828T193439Z-1-005/Scratch Record Vault/DJ Crates - Kombat Kutz - Vol. 01/02-dj_crates-kombat_kutz_vol_01-side_b.mp3	975.08
+BREAK	Scratch Record Vault-20260828T193439Z-1-005/Scratch Record Vault/DJ JS-1 - Rock Breaks 2/Rock Breaks 2 - B1 - Modest Terminator.aif	225.25
+NONE	Scratch Record Vault-20260828T193439Z-1-005/Scratch Record Vault/DJ JS-1 - Scratch Roulette - Vol. 02/02-dj_js-1-scratch_roulette_vol_02-side_b.mp3	963.65
+NONE	Soundtrack Loops Brazillian Lounge WAV/105 A Minor 2/SL_Brazilian_Bass_105_A_minor_08b.wav	18.29
+FX	Soundtrack Loops Cosmic Sea WAV/IMPACTS & BLASTS/SL_Sound_Effect_Blast_WashOut.wav	3.35
+BREAK	Soundtrack Loops Deep Minimal Techno WAV/Loops/Drum loops/SL_DMT_06_Electronic_Drum_Beat.wav	7.50
+NONE	Soundtrack Loops Deep Minimal Techno WAV/Loops/Groove loops/SL_DMT_Groove_13_E_128_BPM.wav	7.50
+BREAK	Soundtrack_Loops_Arena_Rock_WAV/ArenaRock 126Bpm Dmi/SL_ArenaRock_126Bpm_Drm_080.wav	11.43
+FX	Soundtrack_Loops_Frightening_Sounds_WAV/Loops/120 bpm/SL Halloween SFX Loop 120 bpm 25.wav	4.00
+FX	Soundtrack_Loops_Frightening_Sounds_WAV/Loops/120 bpm/SL Halloween SFX Loop 120 bpm 40.wav	8.00
+FX	Soundtrack_Loops_Frightening_Sounds_WAV/One-shots/SL Halloween Sfx Demon Ghost 2.wav	3.84
+BREAK	Soundtrack_Loops_LoFi_Cuts_WAV/Loops/Drums/Kick + Snare/SL_LoFi_Kick+Snare_80_03.wav	12.00
+BREAK	Soundtrack_Loops_LoFi_Cuts_WAV/Loops/Drums/Tops/SL_LoFi_Drum_Tops_85_09.wav	11.29
+PERC	Soundtrack_Loops_LoFi_Cuts_WAV/One-shots/Drum One-shots/SL_LoFi_Perc_OS_06.wav	0.30
+BREAK	Soundtrack_Loops_Office_WAV/Loops/90 bpm/SL Foley Sound Effect Office Beat 03 90 BPM.wav	5.33
+FX	Soundtrack_Loops_SynEmax_WAV/Loops/FX/SL Synthwave Sound Effects Breath Cm 90 BPM.wav	10.67
+NONE	Soundtrack_Loops_SynEmax_WAV/Loops/Piano/SL Synthwave Low Piano Melodic Fm 90 BPM.wav	10.67
+FX	TM88 Nightmare Drum Kit/TM-88 Hits/TM-88 Hits [Pedro].wav	6.64
+PERC	TM88 Nightmare Drum Kit/TM-88 Percs/TM-88 Percs [Jungle].wav	0.14
+SNARE	TM88 Nightmare Drum Kit/TM-88 Snares/TM-88 Snare [Stick].wav	1.08
+BREAK	TropicalBass_Mini_SP/132_FusedBeat_01_670.wav	3.64
+BREAK	TropicalBass_Mini_SP/132_OutShaker_01_670.wav	3.64
+KICK	Vintage/VT_BD.wav	0.32
+HAT	Vintage/VT_CHiHat_2.wav	0.12
+VOX	Vocals/VOC_ScratchinSurf.wav	2.00
+NONE	amberseason_lofimusiccollection/2 - Phat Phrog Studio - Amber Season - Soft Lanterns.wav	93.66
+NONE	amberseason_lofimusiccollection/3 - Phat Phrog Studio - Amber Season - Sunset Sanctuary.wav	217.60
+NONE	amberseason_lofimusiccollection/7 - Phat Phrog Studio - Amber Season - Orange Sunset.wav	217.60
+NONE	arcademusicbundle_volume1_wav/Platformer Music Collection/Phat Phrog Studios - Metallic Future.wav	134.87
+NONE	arcademusicbundle_volume1_wav/Platformer Music Collection/Phat Phrog Studios - Race Against Time - Loop.wav	210.90
+NONE	artofhiphop/Soundtrack_Loops_The_Art_Of_Hip_Hop_WAV/Construction Kits/Kit 15 073 Eb min WAV/SL_AOHH_K15_Piano_Ebmi_073.wav	26.30
+NONE	astralshores_pianomusiccollection/4 - Phat Phrog Studio - Astral Shores - Celestial Horizon.wav	128.03
+NONE	astralshores_pianomusiccollection/6 - Phat Phrog Studio - Astral Shores - Infinite Horizon.wav	135.67
+NONE	battlefieldmusiccollection_wav/2 - Phat Phrog Studios - Battlefield Music Collection.wav	173.57
+NONE	beatem_upmusiccollection_wav/5 - Phat Phrog Studios - Beat Em Up.wav	202.22
+PERC	bentbeats/Soundtrack_Loops_Bent_Beats_WAV/Bent Beats Ableton Love Drum Racks & Templates/Bent Beats Drums Project/Samples/Imported/SL_Drum_One-shot_Conga_Low_01.wav	0.34
+SNARE	bentbeats/Soundtrack_Loops_Bent_Beats_WAV/One-shot Drums/SL_Drum_One-shot_Snare_11.wav	0.39
+NONE	brokenspirit_actionmusiccollection_wav/1 - Phat Phrog Studio - Broken Spirit - Crimson Shadows.wav	149.29
+NONE	brokenspirit_actionmusiccollection_wav/7 - Phat Phrog Studio - Broken Spirit - Shattered Blade.wav	138.18
+NONE	chiptunemusiccollection_wav/Phat Phrog Studios - Eternal Flame.wav	120.18
+NONE	chiptunemusiccollection_wav/Phat Phrog Studios - The Oubliette.wav	120.68
+NONE	chromesentinel_sci-fimusiccollection/3 - Phat Phrog Studio - Chrome Sentinel - Nova Imperium.wav	151.78
+NONE	chromesentinel_sci-fimusiccollection/8 - Phat Phrog Studio - Chrome Sentinel - Void Frontier.wav	135.50
+NONE	cinematicbattlemusiccollection/1 - Phat Phrog Studios - Cinematic Battle Music.wav	136.62
+NONE	cinematicbattlemusiccollection/6 - Phat Phrog Studios - Cinematic Battle Music.wav	142.15
+NONE	cinematictension/Soundtrack_Loops_Cinematic_Tension_WAV/Loops/100 BPM/SL_BPM100_E_Alone.wav	4.80
+NONE	cinematictension/Soundtrack_Loops_Cinematic_Tension_WAV/Loops/80 BPM/SL_BPM80_C_Heart_Rate.wav	12.00
+NONE	cosmicoblivion_actionmusiccollection_wav/1 - Phat Phrog Studio - Cosmic Oblivion - Neon Nexus.wav	126.66
+NONE	darkbasshouse/Soundtrack Loops Dark Bass House WAV/Loops/Basses/SLDBH_Synth_Bass_07_(SC)_D_126.wav	15.24
+VOX	darkbasshouse/Soundtrack Loops Dark Bass House WAV/One-shots/Vocal One Shots/SLDBH_Vocal_One_Shot_Drop_It.wav	0.56
+NONE	darkdrillandgrime/Soundtrack Loops Dark Drill Grime WAV/Loops/Harps/SL_Trap_Harp_Pluck_150bpm_Dm_009.wav	6.40
+PERC	darkdrillandgrime/Soundtrack Loops Dark Drill Grime WAV/One-shots/Drum Kit/SL_Grime_Drum_OS_Shake.wav	0.40
+NONE	downtemposynths/Soundtrack Loops Downtempo Synths/Synth Loops 100 BPM/SL_Downtempo_SynthsV1_A_33.wav	9.60
+NONE	downtemposynths/Soundtrack Loops Downtempo Synths/Synth Loops 100 BPM/SL_Downtempo_SynthsV1_A_38.wav	19.20
+BREAK	electrogrime/Soundtrack_Loops_Electro_Grime_WAV/Loop Kits/Kit 07 102 Ab WAV/SL_07_Elc_Drums_102.wav	9.41
+NONE	electrogrime/Soundtrack_Loops_Electro_Grime_WAV/Loop Kits/Kit 10 122 C# WAV/SL_10_Elc_PortoDly_C#_120.wav	7.86
+NONE	freshmood/Soundtrack_Loops_Fresh_Mood_WAV/Fresh Mood Loops/Sampler Kits/Kit 3/Samples/Bass 02.wav	0.36
+BREAK	futuregrooves/Soundtrack_Loops_Future_Grooves_WAV/Beats/SL_collekta_beats_Aside_15_151bpm.wav	6.36
+BREAK	futuregrooves/Soundtrack_Loops_Future_Grooves_WAV/Beats/SL_collekta_beats_Aside_16_151bpm.wav	6.36
+BREAK	futurerbvocals/Soundtrack Loops Future R&B Vocals WAV/Loops/Drums/SL_RnB_Drum_130_Calm_Mixed_Beat.wav	7.38
+NONE	futurerbvocals/Soundtrack Loops Future R&B Vocals WAV/Loops/Synths/SL_RnB_Synth_130_Eternal_F#.wav	14.77
+NONE	galaxygunslingeri/Soundtrack_Loops_Galaxy_Gunslinger_V1_WAV/Loops/Horns/SL_GG_Brass_Ensemble_4_80_D.wav	12.00
+NONE	galaxygunslingeri/Soundtrack_Loops_Galaxy_Gunslinger_V1_WAV/Loops/Strings/SL_GG_Cello_3_80_D.wav	12.00
+NONE	galaxygunslingerii/Soundtrack_Loops_Galaxy_Gunslinger_V2_WAV/Loops/Keys/SL_GG_Metallic_Piano_03_100_BPM_D.wav	19.20
+NONE	galaxygunslingerii/Soundtrack_Loops_Galaxy_Gunslinger_V2_WAV/Loops/Strings/SL_GG_Double_Bass_01_083_BPM_D.wav	11.57
+NONE	galaxygunslingerii/Soundtrack_Loops_Galaxy_Gunslinger_V2_WAV/Loops/Strings/SL_GG_Violins_03_100_BPM_D.wav	14.40
+FX	galaxygunslingeriii/Soundtrack_Loops_Galaxy_Gunslinger_V3_WAV/One-shots/SL_GG_HugeSynthHit_OS.wav	11.08
+CYM	garagerock/Soundtrack Loops Garage Rock WAV/Garage Rock Samples/Drum One-shots/SL Acoustic Garage Rock Kit Dry Crash Roll.wav	9.15
+PERC	garagerock/Soundtrack Loops Garage Rock WAV/Garage Rock Samples/Drum One-shots/SL Acoustic Garage Rock Kit Dry Drum Sticks.wav	1.05
+NONE	garagerock/Soundtrack Loops Garage Rock WAV/Garage Rock Samples/Kit 01/SL_GRock_Kit1_Electric_Guitar_7_D_130_BPM.wav	1.85
+NONE	heavyindustrial/Soundtrack Loops Heavy Industrial/Loops/Bass/SL_133bpm_D_bass_arp_001a.wav	3.61
+BREAK	heavyindustrial/Soundtrack Loops Heavy Industrial/Loops/Drums and Beats/SL_127bpm_machine_beat_001a.wav	7.56
+BREAK	heavyindustrial/Soundtrack Loops Heavy Industrial/Loops/Drums and Beats/SL_145bpm_simple_beat_001a.wav	3.31
+BREAK	humanbodysoundeffectsandfoley/Soundtrack_Loops_Human_Body_WAV/Loops/95 bpm/SL Human Body Beat Sound Effect 40 95 BPM.wav	5.05
+FX	humanbodysoundeffectsandfoley/Soundtrack_Loops_Human_Body_WAV/One-shots/SL Foley Sound Efrect Human Blow.wav	0.96
+BREAK	industrialcomplexsoundeffectsandfoley/Soundtrack_Loops_Industrial_Complex_SFX_WAV/Loops/200 bpm/SL Foley SFX Industrial Beat 200 BPM 14.wav	2.40
+BREAK	industrialcomplexsoundeffectsandfoley/Soundtrack_Loops_Industrial_Complex_SFX_WAV/Loops/85 bpm/SL Foley SFX Industrial Beat 085 BPM 3.wav	5.65
+NONE	infiniteexpanse_pianomusiccollection/4 - Phat Phrog Studio - Infinite Expanse - Stellar Bloom.wav	148.42
+NONE	infiniteexpanse_pianomusiccollection/8 - Phat Phrog Studio - Infinite Expanse - Far from Sol.wav	120.38
+NONE	ironscores/Soundtrack_Loops_IronScores_WAV/Kit 01 80 BPM A/SL_IS_Kit01_Piano2_A_080.wav	24.00
+NONE	ironscores/Soundtrack_Loops_IronScores_WAV/Kit 02 118 BPM F/SL_IS_Kit02_Viola4_118_F.wav	16.27
+NONE	ironscores/Soundtrack_Loops_IronScores_WAV/Kit 03 115 BPM A/SL_IS_Kit03_Cello_Pizzicato2_115_A.wav	16.70
+BREAK	kitchenthingssoundeffectsandfoley/Soundtrack_Loops_Kitchen_Things_WAV/Loops/180 bpm/SL Foley Sound Effect Kitchen Beat 02 180 BPM.wav	2.67
+VOX	loc.gov_american-english-dialect-recordings-from-the-center-for-applied-linguistics_wav/one_shots/Conversation-with-24-year-old-male-Virginia_afccal000226_026_00-09-13.wav	0.20
+VOX	loc.gov_american-english-dialect-recordings-from-the-center-for-applied-linguistics_wav/one_shots/Conversation-with-91-year-old-male-and-77-year-old-female-Arkansas_afccal000235_010_00-12-53.wav	0.26
+NONE	loc.gov_national-jukebox-classical_wav/one_shots/Star-of-the-sea_jukebox-27221_010_00-00-42.wav	0.43
+NONE	loc.gov_national-jukebox-jazz_wav/one_shots/Dont-leave-me-daddy_jukebox-20175_032_00-01-01.wav	0.20
+NONE	loc.gov_national-jukebox-jazz_wav/one_shots/My-isle-of-golden-dreams_jukebox-34239_029_00-01-35.wav	1.00
+NONE	loc.gov_national-jukebox-popular_wav/one_shots/A-bowl-of-roses_jukebox-131863_007_00-01-21.wav	0.32
+NONE	loc.gov_national-jukebox-popular_wav/one_shots/Auf-wiedersehn-waltz_jukebox-15609_011_00-00-02.wav	0.20
+NONE	loc.gov_national-jukebox-popular_wav/one_shots/In-the-gloaming_jukebox-16530_002_00-00-46.wav	0.20
+BREAK	loficuts/Soundtrack_Loops_LoFi_Cuts_WAV/Loops/Drums/Tops/SL_LoFi_Drum_Tops_80_03.wav	12.00
+NONE	loficuts/Soundtrack_Loops_LoFi_Cuts_WAV/Loops/Synths/SL_LC_Synth_Melody_90_C_18.wav	21.33
+NONE	megahornschordsstabsandswells/Soundtrack_Loops_Mega_Horns_Chord_Stabs_Swells_WAV/Scales/D Scales/SL Brass A DM7 Stab.wav	0.49
+NONE	megahornschordsstabsandswells/Soundtrack_Loops_Mega_Horns_Chord_Stabs_Swells_WAV/Unison Chord/SL Brass F UNI Stab.wav	0.55
+NONE	mnmllofihouse/Soundtrack Loops MNML LoFi House WAV/Loops/Synth Ticks/SL_MNML_Synth_Tick_A_120_05.wav	8.00
+NONE	morningsunrise_lofimusiccollection/1 - Phat Phrog Studio - Morning Sunrise - Amber Glow.wav	142.50
+NONE	morningsunrise_lofimusiccollection/4 - Phat Phrog Studio - Morning Sunrise - Last Summer.wav	117.80
+NONE	morningsunrise_lofimusiccollection/7 - Phat Phrog Studio - Morning Sunrise - Pastel Light.wav	142.13
+NONE	mp1/Soundtrack_Loops_Progressive_Euro_WAV/Loops/SLP_ProgHouse_140BPMs_Arp_Synth_03.wav	6.86
+NONE	mp1/Soundtrack_Loops_Progressive_Euro_WAV/Loops/SLP_ProgHouse_140BPMs_Epic_Pad_11.wav	3.43
+NONE	musicradar-industrial-samples/Kit02 140bpm/Guitar/GuitarK02 140B-07.wav	5.14
+NONE	musicradar-industrial-samples/Kit05 90bpm/Guitar/Lead/LeadGuitK05 90C-01.wav	2.67
+NONE	neosoulkeysloopsandmidi/Soundtrack_Loops_Da_Fingaz_Neo_Soul_Keys_WAV/LOOP STEMS/Kit04 Dreaming BPM 115 c minor/SL_Downsampled_Key_C_Min_115bpm.wav	16.70
+NONE	neosoulkeysloopsandmidi/Soundtrack_Loops_Da_Fingaz_Neo_Soul_Keys_WAV/LOOP STEMS/Kit12 Not Tonight BPM 105 db minor/SL_Cyber_Choir_Db_Min_105bpm.wav	18.29
+NONE	progressiveeuroedm/Soundtrack_Loops_Progressive_Euro_WAV/Loops/SLP_ProgHouse_140BPMs_Synth_Things_07.wav	6.86
+NONE	pyrowitch_actionmusiccollection/2 - Phat Phrog Studio - Pyro Witch - Cinders of Fate.wav	132.90
+NONE	pyrowitch_actionmusiccollection/7 - Phat Phrog Studio - Pyro Witch - Flameweaver.wav	126.30
+NONE	radiantgrove_pianomusiccollection/7 - Phat Phrog Studio - Radiant Grove - Whispering Plains.wav	132.75
+NONE	radiantgrove_pianomusiccollection/8 - Phat Phrog Studio - Radiant Grove - Songborn Meadow.wav	135.50
+BREAK	rhythm-lab.com_amen_vol.2/rhythm-lab.com_amen_vol.2/WAV/cw_amen_finger.wav	2.82
+BREAK	rhythm-lab.com_amen_vol.2/rhythm-lab.com_amen_vol.2/WAV/cw_amen_jungle.wav	2.74
+BREAK	rhythm-lab.com_amen_vol.3/rhythm-lab.com_amen_vol.3/WAV/Promo Break 168.wav	2.86
+BREAK	rhythm-lab.com_amen_vol.3/rhythm-lab.com_amen_vol.3/WAV/Stick Break 170.wav	2.82
+BREAK	rhythm-lab.com_noskool_breaks/rhythm-lab.com_noskool_breaks/WAV/130 Klint Break.wav	3.70
+BREAK	rhythm-lab.com_noskool_breaks/rhythm-lab.com_noskool_breaks/WAV/140 Osmotic Break.wav	6.87
+NONE	sanguinenexus_actionmusiccollection/3 - Phat Phrog Studio - Sanguine Nexus - Sanguine Hunter.wav	122.03
+NONE	sanguinenexus_actionmusiccollection/5 - Phat Phrog Studio - Sanguine Nexus - Ashen Bloodline.wav	130.60
+NONE	sanguinenexus_actionmusiccollection/8 - Phat Phrog Studio - Sanguine Nexus - Dark Rebirth.wav	131.95
+VOX	seidsvocalloops/Soundtrack Loops Seids Vocal Debut WAV/Vocal Loops/SL_Seids_Love_Me_Vocal_Bmin_120.wav	16.00
+NONE	shadowsector_rpgmusiccollection/6 - Phat Phrog Studio - Shadow Sector - Dark Dominion.wav	128.73
+NONE	silentjustice_actionmusiccollection/3 - Phat Phrog Studio - Silent Justice - Zero Signal.wav	147.70
+NONE	silentjustice_actionmusiccollection/6 - Phat Phrog Studio - Silent Justice - Shattered Synapse.wav	130.60
+NONE	song samples/Poisons.mp3	203.96
+VOX	song samples/Tibetan throat singing. From TikTok.mp3	11.70
+FX	sound fx/Revolver Cylinder Click Sound Effect.mp3	8.44
+BREAK	soundsofmexicocitysoundeffectsandfoley/Soundtrack_Loops_Sounds_of_Mexico_City_WAV/Loops/150 bpm/SL Foley Sound Effects Beat 150 BPM 12.wav	3.20
+FX	soundsofmexicocitysoundeffectsandfoley/Soundtrack_Loops_Sounds_of_Mexico_City_WAV/One-shots/SL Foley Sound Effects Broom Sweep 2.wav	1.37
+NONE	spirithawk_adventuremusiccollection_wav/1 - Phat Phrog Studio - Spirit Hawk - Sacred Lands.wav	123.43
+NONE	spirithawk_adventuremusiccollection_wav/6 - Phat Phrog Studio - Spirit Hawk - Totem Quest.wav	128.57
+VOX	stalker sounds/characters_voice/scenario/jupiter/jup_b4_monolith_talk_to_commander_2.ogg	2.35
+VOX	stalker sounds/characters_voice/scenario/zaton/zat_b52_port_bandits_after_pay_snd_2.ogg	3.87
+NONE	studynights_lofimusiccollection/2 - Phat Phrog Studio - Study Nights - Raindrop Reverie.wav	124.24
+NONE	sunlithorizon_pianomusiccollection/5 - Phat Phrog Studio - Sunlit Horizon - Falling Petals.wav	121.75
+NONE	sunlithorizon_pianomusiccollection/8 - Phat Phrog Studio - Sunlit Horizon - Forgotten Glade.wav	134.50
+BREAK	trashsoundeffectsandfoley/Soundtrack_Loops_Trash_WAV/Loops/130 bpm/SL Foley Sound Effect Trash Beat 20 130 BPM.wav	3.69
+BREAK	trashsoundeffectsandfoley/Soundtrack_Loops_Trash_WAV/Loops/200 bpm/SL Foley Sound Effect Trash Beat 22 200 BPM.wav	2.40
+PERC	trashsoundeffectsandfoley/Soundtrack_Loops_Trash_WAV/One-shots/SL Foley Sound Effect Bucket 5 Hand Stroke.wav	1.20
+NONE	ultimateambientmusicbundle_volume5/ultimateambientmusicbundle_volume5/Skies/2 - Phat Phrog Studios - Skies Ambience.wav	192.05
+NONE	universalclubleads/Soundtrack Loops Universal Club Leads/Loops/SLPUCL_Lead_G_140_082.wav	13.71
+NONE	videoproducersmusicbox/Soundtrack_Loops_Video_Music_Box_V1_WAV/Loop Kit Sessions/Session 16 A 120BPM/PLPVMB-S16_120BPM_A_Bass.wav	8.00
+KICK	x.shulz lofi kit/kicks/grit 2.wav	0.30

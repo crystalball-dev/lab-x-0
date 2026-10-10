@@ -64,7 +64,8 @@ target_link_libraries(LabX0
 juce_add_console_app(LabX0Render PRODUCT_NAME "LabX0Render")
 target_sources(LabX0Render PRIVATE Tests/RenderHarness.cpp ${LABX0_SOURCES})
 target_include_directories(LabX0Render PRIVATE Source)
-target_compile_definitions(LabX0Render PRIVATE ${LABX0_DEFINITIONS} LABX0_HARNESS=1)
+# JUCE_MODAL_LOOPS_PERMITTED: --png-wait runs the message loop so the browser can fill before the snapshot.
+target_compile_definitions(LabX0Render PRIVATE ${LABX0_DEFINITIONS} LABX0_HARNESS=1 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_compile_options(LabX0Render PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(LabX0Render
     PRIVATE
