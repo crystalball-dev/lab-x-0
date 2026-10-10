@@ -10,6 +10,7 @@
 #include "Pattern.h"
 #include "Library.h"
 #include "SampleBank.h"
+#include "Explode.h"
 #include "DSP/Anomaly.h"
 #include "DSP/Punch.h"
 #include "DSP/Regulator.h"
@@ -61,6 +62,14 @@ public:
     void setCustomSlices (int breakSlot, const std::vector<int>& positions);
     std::vector<int> getCustomSlices (int breakSlot) const;
     int getCustomSlicesVersion (int breakSlot) const noexcept;
+
+    // EXPLODE (0.2.0): break slot -> pads firstPad.. (one per component of the break, each holding its loudest hit as
+    // a region of the break file) and a pattern that plays the break back on them, written into the first empty
+    // pattern after the current one and selected. The break is decoded again on a background thread; `done` gets a
+    // summary on the message thread. explodeBreakNow does it all at once (the harness).
+    // everySlice: one pad per slice (similar slices share only when there are more slices than pads).
+    void explodeBreak (int breakSlot, int firstPad, bool everySlice, std::function<void (const juce::String&)> done);
+    labx0::ExplodePlan explodeBreakNow (int breakSlot, int firstPad, bool everySlice = false, int* patternIndex = nullptr);
     labx0::SampleRef getSampleRef (int slot) const  { return bank.getRef (slot); }
     labx0::SampleRef resolveKitRef (const juce::String& text) const;
     void previewSample (const labx0::SampleRef& ref);
@@ -291,6 +300,23 @@ private:
     juce::File faultLogOverride;
     bool faultLogHeaderWritten = false;
     int preparedBlockSize = 0;
+
+    struct ExplodeSource
+    {
+        labx0::SampleRef ref;
+        double offset = 0.0, length = 0.0, beats = 4.0;
+        std::vector<int> slices;
+        juce::String error;
+    };
+    ExplodeSource explodeSourceFor (int breakSlot) const;
+    labx0::ExplodePlan analyseExplode (const ExplodeSource& source, int maxPads, bool everySlice, double& sampleRate);
+    int applyExplode (int breakSlot, int firstPad, const labx0::ExplodePlan& plan, const ExplodeSource& source, double sampleRate);
+
+    // Background work (EXPLODE, renders). Declared last, so it is destroyed first: a running job finishes before
+    // anything it uses goes away; `alive` stops results arriving after that.
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
+    std::unique_ptr<juce::ThreadPool> jobs = std::make_unique<juce::ThreadPool> (juce::ThreadPoolOptions().withThreadName ("LAB X-0 jobs")
+                                                                                                           .withNumberOfThreads (1));
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LabX0AudioProcessor)
 };

@@ -1109,6 +1109,46 @@ def t32_slices_regions(T):
              {"roundtrip": st.get("roundtrip"), "state_bytes": st.get("state_bytes")})
 
 
+def t33_explode(T):
+    """EXPLODE (0.2.0): a break's components become pads holding regions of the break, and a new pattern plays the
+    break back on them, on time (nudges) and at its levels (velocity, pad level)."""
+    loop = fx("slicing/click_loop.wav")
+    clicks = [float(v) for v in (FIX / "slicing/click_loop_onsets.txt").read_text().split(",")]
+    wav, st = render("explode_clicks", INIT + ["--bpm", "120", "--break", "1=" + loop, "--set", "b1_route=2", "--explode", "1",
+                                               "--seconds", "1.99"])
+    m, sr = load_mono(wav)
+    found = detect_onsets(m, sr, rel=0.2, min_gap=0.05)
+    ok, worst = match_times(found, clicks, 0.0015)
+    T.record(33, "the exploded click loop plays its 10 clicks back at their times (within 1.5 ms) from pattern 2",
+             clean(st) and st.get("explode_ok") == "1" and st.get("explode_pattern") == "2" and ok,
+             {"explode": st.get("explode"), "worst_ms": round(1000 * worst, 2) if worst is not None else None,
+              "onsets": len(found)})
+
+    _, st = render("explode_every", INIT + ["--bpm", "120", "--break", "1=" + loop, "--explode", "1", "--every-slice",
+                                            "--seconds", "0.5"])
+    T.record(33, "every-slice mode gives each of the 10 slices its own pad", st.get("explode", "").startswith("10 HITS -> 10 PADS"),
+             {"explode": st.get("explode")})
+
+    amen = LIBRARY / "rhythm-lab.com_amen_vol.1" / "rhythm-lab.com_amen_vol.1" / "WAV" / "cw_amen01_175.wav" if LIBRARY else None
+    if amen is None or not amen.exists():
+        T.record(33, "the exploded amen plays back like the break", None, {"skip": "USER library not found"})
+        return
+    common = INIT + ["--bpm", "175", "--break", "1=" + str(amen), "--set", "b1_route=2", "--seconds", "2.74"]
+    orig, _ = render("explode_amen_orig", common + ["--pattern", pat(["b1:x"], 32)])
+    wav, st = render("explode_amen", common + ["--explode", "1"])
+    a, sr = load_mono(orig)
+    b, _ = load_mono(wav)
+    oa = detect_onsets(a, sr, rel=0.15, min_gap=0.04)
+    ob = detect_onsets(b, sr, rel=0.15, min_gap=0.04)
+    errors = [1000 * min(abs(x - y) for y in ob) for x in oa] if ob else [99.0]
+    level = rms_db(b) - rms_db(a)
+    ok = (clean(st) and st.get("explode_components") == "KICKx5,SNAREx4,SNAREx5,HATx6" and abs(len(oa) - len(ob)) <= 2
+          and float(np.median(errors)) < 1.0 and abs(level) < 2.0)
+    T.record(33, "the amen explodes into kick, snare, ghost snare and ride and plays back like the break at 175 BPM", ok,
+             {"components": st.get("explode_components"), "onsets": [len(oa), len(ob)], "median_ms": round(float(np.median(errors)), 2),
+              "worst_ms": round(max(errors), 2), "level_db": round(level, 2)})
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 class Runner:
@@ -1147,7 +1187,7 @@ def main():
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
              (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
-             (31, t31_outputs), (32, t32_slices_regions)]
+             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

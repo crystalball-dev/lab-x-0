@@ -36,6 +36,7 @@ set(LABX0_SOURCES
     Source/PluginEditor.cpp
     Source/Library.cpp
     Source/SampleBank.cpp
+    Source/Explode.cpp
     Source/AudioAnalysis.cpp
     Source/Pattern.cpp
     Source/FactoryPresets.cpp

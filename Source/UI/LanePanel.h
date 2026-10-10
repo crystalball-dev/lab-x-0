@@ -44,6 +44,9 @@ namespace labx0::ui
             addChildComponent (*breakStackA);
             addChildComponent (*breakStackB);
             addChildComponent (*breakStackC);
+            styleButton (explodeButton, "Take the break apart into pads (kick, snare, hats...) and a pattern that plays it back on them");
+            explodeButton.onClick = [this] { explodeMenu(); };
+            addChildComponent (explodeButton);
 
             name.setFont (monoFont (12.0f, true));
             name.setColour (juce::Label::textColourId, Palette::bright);
@@ -122,10 +125,13 @@ namespace labx0::ui
             if (name.getText() != n)
                 name.setText (n, juce::dontSendNotification);
             const auto text = bank.getStatusText (lane) + (ref.isEmpty() ? juce::String() : "\n" + ref.toString());
-            if (statusLabel.getText() != text)
+            const bool showingNotice = juce::Time::getMillisecondCounter() < noticeUntil;
+            const auto shown = showingNotice ? notice : text;
+            if (statusLabel.getText() != shown)
             {
-                statusLabel.setText (text, juce::dontSendNotification);
-                statusLabel.setColour (juce::Label::textColourId, bank.getStatus (lane) == SampleBank::Status::ready ? Palette::phosphor : Palette::red);
+                statusLabel.setText (shown, juce::dontSendNotification);
+                statusLabel.setColour (juce::Label::textColourId, showingNotice || bank.getStatus (lane) == SampleBank::Status::ready
+                                                                      ? Palette::phosphor : Palette::red);
             }
             if (lane >= laneFirstBreak)
             {
@@ -186,11 +192,68 @@ namespace labx0::ui
                 breakStackA->setBounds (b.removeFromLeft ((int) (unit * 1.35f)));
                 breakStackB->setBounds (b.removeFromLeft ((int) (unit * 1.35f)));
                 breakStackC->setBounds (b.removeFromLeft ((int) (unit * 1.35f)));
+                explodeButton.setBounds (b.removeFromLeft ((int) (unit * 1.4f)).reduced (6, 0).withSizeKeepingCentre ((int) (unit * 1.4f) - 12, 26));
             }
         }
 
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override { rebind(); }
+
+        void showNotice (const juce::String& text, int milliseconds = 8000)
+        {
+            notice = text;
+            noticeUntil = juce::Time::getMillisecondCounter() + (juce::uint32) milliseconds;
+            refresh();
+        }
+
+        // EXPLODE: the break's components to pads and a pattern that plays it back on them.
+        void explodeMenu()
+        {
+            const int lane = ctx.selectedLane;
+            if (lane < laneFirstBreak || lane >= laneTime)
+                return;
+            const int b = lane - laneFirstBreak;
+            juce::PopupMenu menu;
+            menu.addSectionHeader ("EXPLODE BREAK " + breakLetter (b) + " INTO PADS + A NEW PATTERN");
+            menu.addItem (1, "By sound (alike hits share a pad): pads 1-16");
+            menu.addItem (2, "By sound: pads 9-16");
+            menu.addItem (3, "Every slice its own pad: pads 1-16");
+            menu.addItem (4, "Every slice its own pad: pads 9-16");
+            juce::Component::SafePointer<LanePanel> safe (this);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&explodeButton), [safe, b] (int result)
+            {
+                if (safe == nullptr || result == 0)
+                    return;
+                const int first = (result == 2 || result == 4) ? 8 : 0;
+                const bool everySlice = result >= 3;
+                auto run = [safe, b, first, everySlice]
+                {
+                    if (safe == nullptr)
+                        return;
+                    safe->showNotice ("EXPLODING BREAK " + breakLetter (b) + "...", 60000);
+                    safe->ctx.processor.explodeBreak (b, first, everySlice, [safe] (const juce::String& text)
+                    {
+                        if (safe == nullptr)
+                            return;
+                        safe->showNotice ("EXPLODED: " + text);
+                        safe->ctx.sendChangeMessage();
+                    });
+                };
+                bool used = false;
+                for (int p = first; p < numPads; ++p)
+                    used = used || ! safe->ctx.processor.getSampleRef (p).isEmpty();
+                if (! used)
+                {
+                    run();
+                    return;
+                }
+                juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "EXPLODE BREAK " + breakLetter (b),
+                                                    "Pads " + juce::String (first + 1) + "-16 hold samples. The pads the break needs "
+                                                    "will be replaced; the pattern goes into the first empty pattern slot.",
+                                                    "EXPLODE", "CANCEL", safe.getComponent(),
+                                                    juce::ModalCallbackFunction::create ([run] (int ok) { if (ok == 1) run(); }));
+            });
+        }
 
         void rebind()
         {
@@ -226,6 +289,7 @@ namespace labx0::ui
             breakStackA->setVisible (brk);
             breakStackB->setVisible (brk);
             breakStackC->setVisible (brk);
+            explodeButton.setVisible (brk);
             if (! brk)
                 windowBox.setVisible (false);
 
@@ -267,6 +331,9 @@ namespace labx0::ui
         juce::Label name, statusLabel, slotInfo;
         juce::TextButton loadButton { "LOAD" }, clearButton { "CLEAR" };
         juce::ComboBox windowBox;
+        juce::TextButton explodeButton { "EXPLODE" };
+        juce::String notice;
+        juce::uint32 noticeUntil = 0;
         std::vector<std::unique_ptr<juce::TextButton>> timeButtons, volumeButtons;
     };
 }

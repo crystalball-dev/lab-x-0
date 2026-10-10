@@ -48,6 +48,8 @@ LabX0AudioProcessor::LabX0AudioProcessor()
 
 LabX0AudioProcessor::~LabX0AudioProcessor()
 {
+    alive->store (false);
+    jobs.reset();   // waits for a running job
     stopTimer();
     cancelPendingUpdate();
     flushFaultLog();
@@ -1368,6 +1370,152 @@ void LabX0AudioProcessor::auditionSlice (int breakSlot, int slice)
     const auto fifoScope = uiFifo.write (1);
     if (fifoScope.blockSize1 > 0)
         uiEvents[(size_t) fifoScope.startIndex1] = { 2, breakSlot, 0.85f, slice };
+}
+
+//==============================================================================
+LabX0AudioProcessor::ExplodeSource LabX0AudioProcessor::explodeSourceFor (int b) const
+{
+    ExplodeSource source;
+    const int slot = slotFirstBreak + b;
+    auto ov = bank.getOverview (slot);
+    if (! juce::isPositiveAndBelow (b, numBreaks) || ov == nullptr || bank.getStatus (slot) != SampleBank::Status::ready)
+    {
+        source.error = "LOAD A BREAK FIRST";
+        return source;
+    }
+    source.ref = bank.getRef (slot);
+    source.offset = bank.getOffset (slot);
+    source.length = bank.getLength (slot);
+    source.beats = loopBeatsFor (b, *ov);
+    source.slices.resize ((size_t) maxSlices);
+    source.slices.resize ((size_t) computeSlices (b, *ov, source.slices.data(), maxSlices));
+    return source;
+}
+
+ExplodePlan LabX0AudioProcessor::analyseExplode (const ExplodeSource& source, int maxPads, bool everySlice, double& sampleRate)
+{
+    // The break exactly as its slot holds it: same file, window, region and normalising, so the slice positions fit.
+    // (Tempo analysis is off, so the host tempo does not matter here.)
+    auto result = bank.decode (getLibrary().resolve (source.ref), source.offset, false, 120.0, source.length, nullptr);
+    if (result.data == nullptr)
+    {
+        ExplodePlan failed;
+        failed.message = result.message.isNotEmpty() ? result.message : juce::String ("COULD NOT READ THE BREAK");
+        return failed;
+    }
+    const auto& d = *result.data;
+    std::vector<float> mono ((size_t) d.length);
+    for (int i = 0; i < d.length; ++i)
+        mono[(size_t) i] = 0.5f * (d.l()[i] + d.r()[i]);
+    sampleRate = d.sampleRate;
+    return planExplode (mono.data(), d.length, d.sampleRate, source.slices, source.beats, maxPads, everySlice ? 0.0f : mergeDistanceDb);
+}
+
+int LabX0AudioProcessor::applyExplode (int b, int firstPad, const ExplodePlan& plan, const ExplodeSource& source, double sampleRate)
+{
+    // The first empty pattern after the current one (else the current one, rewritten).
+    const int current = getEditPattern();
+    int target = -1;
+    patterns.read ([&target, current] (const PatternBank& pb)
+    {
+        for (int k = 1; k <= numPatterns && target < 0; ++k)
+            if (const int i = (current + k) % numPatterns; pb.patterns[(size_t) i].isEmpty())
+                target = i;
+    });
+    if (target < 0)
+        target = current;
+
+    auto set = [this] (int index, float value)
+    {
+        if (auto* p = apvts.getParameter (paramSpecs()[(size_t) index].id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+    };
+    const int route = choiceOf (P::brk (b, P::brRoute));
+    const int pads = std::min ((int) plan.components.size(), numPads - firstPad);
+    for (int k = 0; k < pads; ++k)
+    {
+        const auto& c = plan.components[(size_t) k];
+        const auto& h = plan.hits[(size_t) c.representative];
+        const int pad = firstPad + k;
+        assignSample (pad, source.ref, source.offset + (double) h.start / sampleRate, (double) h.length / sampleRate);
+        // A plain pad that plays the whole region at the level the hit had in the break; velocity does the rest.
+        set (P::pad (pad, P::padLevel), std::clamp (c.levelDb, -48.0f, 6.0f));
+        set (P::pad (pad, P::padTune), 0.0f);
+        set (P::pad (pad, P::padStart), 0.0f);
+        set (P::pad (pad, P::padAttack), 0.0f);
+        set (P::pad (pad, P::padHold), 0.0f);
+        set (P::pad (pad, P::padDecay), 10.0f);
+        set (P::pad (pad, P::padTone), 0.0f);
+        set (P::pad (pad, P::padReso), 0.0f);
+        set (P::pad (pad, P::padDrive), 0.0f);
+        set (P::pad (pad, P::padVel), 1.0f);
+        set (P::pad (pad, P::padReverse), 0.0f);
+        set (P::pad (pad, P::padMode), (float) Choice::modeMono);
+        set (P::pad (pad, P::padChoke), 0.0f);
+        set (P::pad (pad, P::padRoute), (float) route);
+        set (P::out (pad), 0.0f);
+    }
+
+    patterns.edit (target, [&plan, pads, firstPad] (Pattern& p)
+    {
+        p.clear();
+        p.length = plan.pattern.length;
+        p.resolution = plan.pattern.resolution;
+        for (int k = 0; k < pads; ++k)
+            p.lanes[(size_t) (firstPad + k)] = plan.pattern.lanes[(size_t) k];
+    });
+    setEditPattern (target);
+    return target;
+}
+
+ExplodePlan LabX0AudioProcessor::explodeBreakNow (int b, int firstPad, bool everySlice, int* patternIndex)
+{
+    firstPad = juce::jlimit (0, numPads - 1, firstPad);
+    const auto source = explodeSourceFor (b);
+    if (source.error.isNotEmpty())
+    {
+        ExplodePlan failed;
+        failed.message = source.error;
+        return failed;
+    }
+    double sampleRate = 48000.0;
+    auto plan = analyseExplode (source, numPads - firstPad, everySlice, sampleRate);
+    if (plan.ok)
+    {
+        const int target = applyExplode (b, firstPad, plan, source, sampleRate);
+        plan.message << ", PATTERN " << juce::String (target + 1).paddedLeft ('0', 2);
+        if (patternIndex != nullptr)
+            *patternIndex = target;
+    }
+    return plan;
+}
+
+void LabX0AudioProcessor::explodeBreak (int b, int firstPad, bool everySlice, std::function<void (const juce::String&)> done)
+{
+    firstPad = juce::jlimit (0, numPads - 1, firstPad);
+    auto source = std::make_shared<ExplodeSource> (explodeSourceFor (b));
+    if (source->error.isNotEmpty())
+    {
+        if (done)
+            done (source->error);
+        return;
+    }
+    auto token = alive;
+    jobs->addJob ([this, token, source, b, firstPad, everySlice, done]
+    {
+        double sampleRate = 48000.0;
+        auto plan = std::make_shared<ExplodePlan> (analyseExplode (*source, numPads - firstPad, everySlice, sampleRate));
+        juce::MessageManager::callAsync ([this, token, source, plan, b, firstPad, sampleRate, done]
+        {
+            if (! token->load())
+                return;
+            auto text = plan->message;
+            if (plan->ok)
+                text << ", PATTERN " << juce::String (applyExplode (b, firstPad, *plan, *source, sampleRate) + 1).paddedLeft ('0', 2);
+            if (done)
+                done (text);
+        });
+    });
 }
 
 int LabX0AudioProcessor::getEditPattern() const noexcept

@@ -8,6 +8,7 @@
 //               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
 //               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
 //               [--slices 1=0,11952,23952]   (hand-placed slice starts for break slot A, in samples)
+//               [--explode 1[:5]]            (break A's components to pads 1.. (or 5..) and the first empty pattern)
 // --pad and --break take <ref>[@offset[,length]] (seconds): a region of the file.
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
@@ -968,6 +969,22 @@ int main (int argc, char* argv[])
         playHead.playing = wasPlaying;
         proc->getBank().waitUntilSettled (120000);
         proc->prepareToPlay (sampleRate, prepareBlock);
+    }
+
+    if (args.contains ("--explode"))
+    {
+        // --explode <break slot>[:<first pad>], both 1-based: the break's components to pads and a pattern.
+        const auto spec = option (args, "--explode");
+        const int b = spec.upToFirstOccurrenceOf (":", false, false).getIntValue() - 1;
+        const int firstPad = spec.contains (":") ? spec.fromFirstOccurrenceOf (":", false, false).getIntValue() - 1 : 0;
+        int pattern = -1;
+        const auto plan = proc->explodeBreakNow (b, firstPad, args.contains ("--every-slice"), &pattern);
+        std::cout << "explode=\"" << plan.message << "\" explode_ok=" << (plan.ok ? 1 : 0) << " explode_pattern=" << (pattern + 1)
+                  << " explode_steps=" << plan.steps << " explode_components=";
+        for (size_t k = 0; k < plan.components.size(); ++k)
+            std::cout << (k ? "," : "") << explodeKindNames[(int) plan.components[k].kind] << "x" << plan.components[k].count;
+        std::cout << std::endl;
+        proc->getBank().waitUntilSettled (120000);
     }
 
     if (args.contains ("--fuzz"))
