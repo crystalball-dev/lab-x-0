@@ -78,8 +78,9 @@ DRY waits the same time, so all three routes stay aligned.
   block's window. Swing pushes odd steps late by 0.5 x swing x step; nudge moves a hit up to half a step either way;
   ratchets split the step evenly; probability uses a hash of (step, lane, pattern pass), so a render repeats
   exactly. A queued pattern starts at the first boundary of the current pattern at or after its note (half a sample
-  of slack, so a note on the bar line takes that bar); the PATTERN parameter and buttons count from the block start.
-  A block edge within a fifth of a sample of a boundary is moved onto it, so a bar line on a block edge belongs to
+  of slack, so a note on the boundary takes that one); the PATTERN parameter and buttons count from the block start.
+  A pattern's boundaries are its ends: bar lines for a one-bar pattern, every other bar line for a two-bar pattern.
+  A block edge within a fifth of a sample of a boundary is moved onto it, so a boundary on a block edge belongs to
   exactly one block. Host jumps and loops resynchronise; small ppq wobbles are snapped to the previous block's end.
   RUN Free uses an internal clock at the last known tempo.
 - **MIDI**: notes 36-51 play pads 1-16, 52-55 break slots A-D from their start, 60-91 slices 1-32 of the SLICE MIDI
@@ -207,19 +208,20 @@ Bass Explorer loops, 808, FPC, RealDrumkits, Vintage), the ZONE KIT and the PACK
 - The presets and the ZONE KIT pin paths inside STALKER SPECIMENS and FL's `stalker sounds`; `docs/PINNED_PATHS.md`
   lists them for the library's maintenance tools.
 
-## 0.1.1: queued pattern switches on block-edge bar lines
+## 0.1.1: queued pattern switches on block-edge boundaries
 
 Reported by the session writing the user guide, with a reproduction through `LabX0Render`: a pattern queued by MIDI
 note (or by the PATTERN parameter or buttons, which share the queue) could start one or more patterns late, or never.
-It happened when bar lines fell exactly on audio block starts: at 48 kHz with 64-sample blocks (the user's FL setup)
+It happened when pattern boundaries (the ends of the current pattern; bar lines for one-bar patterns) fell exactly on
+audio block starts: at 48 kHz with 64-sample blocks (the user's FL setup)
 whenever 180000 / BPM is a whole number (90, 100, 120, 125, 144, 150, 160, 180 BPM...), and at other tempos with other
 block sizes. 0.1.0 rendered 21 of 60 such cases wrong, including "never" at 120 BPM.
 
 `StepSequencer::collect` took the boundary strictly after the block start, with a 1e-9 tolerance, and used it only if
-it came before the block end. Block positions are chained sums, so at an edge that is a bar line the position rounds a
+it came before the block end. Block positions are chained sums, so at an edge that is a boundary the position rounds a
 hair above or below the boundary. When it rounded low, the block ending there saw the boundary as not yet reached and
-the block starting there saw it as already passed; each bar line was a coin toss, so several could be missed in a
-row. Separately, a note exactly on a bar line was always one pattern late, because the boundary at the block start
+the block starting there saw it as already passed; each boundary was a coin toss, so several could be missed in a
+row. Separately, a note exactly on a boundary was always one pattern late, because the boundary at the block start
 never counted.
 
 The fix (a tolerance alone would have dropped the new pattern's downbeat when the position rounded the other way):
@@ -227,11 +229,81 @@ The fix (a tolerance alone would have dropped the new pattern's downbeat when th
 - A block edge within a fifth of a sample of a boundary of the current pattern is moved onto it, with the same
   arithmetic as the boundary itself, so the boundary belongs to exactly one block: the one it starts.
 - The switch goes to the first boundary at or after the block start, compared exactly, as events are.
-- A pattern note counts from its own position in the block, less half a sample: on the bar line it takes that bar,
+- A pattern note counts from its own position in the block, less half a sample: on the boundary it takes that one,
   2 ms after it the next. The constraint applies only in the note's block, so a host loop that jumps back still
   starts the queued pattern at the loop start.
 
 Test 30 renders the switch at 16 tempos (12 at 48 kHz with 64- and 512-sample blocks, 4 at 44.1 kHz with 64), with
 notes mid-bar, on bar lines and 2 ms after them (168 cases), plus a queued pattern across a host loop. Run against
 0.1.0's sequencer, both of its checks fail. With the fix the full suite passes: 30 tests, 73 checks, pluginval 10.
+
+## 0.2.0: per-lane outputs, editable slices, EXPLODE, RENDER
+
+Asked for by the user after 0.1.1 (relayed by the session writing the user guide): mixer channels per lane, slice
+points under control at all times, a way to take a break apart into kick, snare and hats and put it back together,
+and output that can be consolidated into the arrangement.
+
+**Per-lane outputs.** 20 more stereo outputs (Out 2 to Out 21) and an OUT parameter per pad and break: Main, or an
+output of its own. A lane on its own output leaves straight after its voices (level, pan, tone, drive, envelope),
+before ANOMALY, PUNCH, width, master and the limiter, so the host's mixer track does that work; it is delayed by the
+plugin's latency so every output lines up, and it keeps the preset fade, the runaway guard and the safety clip. All
+outputs are active by default: FL Studio skips outputs a plugin marks inactive unless the wrapper's "Process inactive
+inputs and outputs" is set, and its "Auto map outputs" sends output k to the k-th mixer track after the channel's own.
+A lane whose output the host has not enabled plays on the main output. The 20 OUT parameters come after all of
+0.1's, so automation by index still lands where it did. Test 31: a pad on output 2 leaves there aligned to the
+sample, the main output keeps the rest, the lane's level applies, ANOMALY leaves it alone, and with only the main
+output it plays there.
+
+**Slices under control.** The waveform of a break lane edits the slices at any time: drag a marker (it snaps to a
+nearby hit, within 6 ms, unless Shift is held), double-click to add or remove one, right-click for the menu (which
+also goes back to the automatic slices). The first edit turns the automatic slices into hand-placed ones, marked
+EDITED SLICES; they replace the automatic ones for steps, MIDI slice notes, tools and EXPLODE, are saved with the
+state and are cleared when the slot's sample changes. The audio thread copies them the way it copies patterns (spin
+lock, never waiting). The waveform now keeps 4096 columns and zooms with the wheel at the cursor (Shift + wheel
+scrolls). Test 32.
+
+**Regions.** A sample slot can hold one region of a file: offset and length, saved with the state. The slot is
+normalised on its region like any sample.
+
+**EXPLODE.** A break lane's EXPLODE button takes the break apart (`Source/Explode.cpp`):
+
+- Each slice is described by the spectral shape of its first 120 ms: energy in eight bands (80, 160, 400 Hz, 1, 2.5,
+  5, 10 kHz edges) relative to its own total, in dB, the window open over the attack. Slices quieter than -60 dB
+  stay out.
+- Alike hits join one component: average-linkage clustering on the RMS difference of those shapes (bands clamped at
+  -40 dB), merged while within 3 dB, and always down to the pads available. On cw_amen01_175 kicks, snares, ghost
+  snares and ride hits sit 3.6 to 8 dB apart and within 0 to 2.6 dB of their own kind, so it gives four components.
+  "Every slice" mode merges only when there are more slices than pads.
+- Each component becomes a pad holding its loudest hit as a region of the break file, at the level it had in the
+  break (the pad's own normalising undone through LEVEL), velocity 100 %, Mono, the break's route. A rough kind
+  (kick, snare, hat, other, from the band shares) orders the pads.
+- A new pattern (the first empty one after the current one, else the current one) plays the break back: each hit on
+  the nearest 1/16 step (1/8 for breaks longer than 16 beats, up to 32), nudged to its exact time, velocity for its
+  level against its component's loudest hit. The pattern is selected, so it plays from the next boundary.
+- The break is decoded again on a background thread exactly as its slot holds it; the result is applied on the
+  message thread.
+
+Test 33: the click loop's 10 clicks come back within 1.5 ms, every-slice mode gives 10 pads, and cw_amen01_175
+gives kick x5, snare x4, ghost snare x5, ride x6 and plays back at 175 BPM with 68 of 68 onsets, median 0.48 ms
+apart, 1.1 dB louder (pads ring under each other where the break's own audio cut its tails).
+
+**RENDER.** The header's RENDER button opens a panel that renders the pattern being edited at the host's last tempo:
+the mix, the mix and every lane with steps on its own (soloed, through the whole chain, as heard), or the selected
+lane, for 1 to 8 passes. A second engine instance is made and destroyed on the message thread and renders on the job
+thread from the same state; its transport plays from beat 0, stops exactly at the end of the last pass (a block ends
+there, so no hit of the next pass slips in) and the tails ring out, trimmed at -90 dBFS. Stems take the mix's length,
+so dropped at one bar they line up. A MIDI file of the hits as played (swing, nudge, ratchets and probability
+included; pads on 36-51, breaks on 52-55, explicit slices on 60-91) goes with the mix. The files go to
+`Documents\LAB X-0\Renders\<date time> Pattern NN` as 24-bit WAV; each row of the list, or DRAG ALL, starts an
+external drag (JUCE `performExternalDragDropOfFiles`) onto the host's playlist or Explorer. A plugin cannot put clips
+in FL's playlist itself, so the drag is the consolidate step. Test 34: the mix equals a direct render to 24-bit
+precision, the stems sum to the mix (1.2e-7 and 2.4e-7 with a neutral chain), the MIDI file holds all 16 hits at
+their steps, and a selected-lane render holds that lane only.
+
+Limits: stems through PUNCH sum to the mix only while the chain is linear (compression and clipping react to what
+they are fed); FL Studio 20.6's handling of VST3 multi-output and of files dropped on the playlist from a plugin is
+documented but was not testable here (FL cannot be driven headlessly), so it is the user's first check.
+
+Verification: the full suite passes, 34 tests and 86 checks, pluginval strictness 10 with all 21 outputs, 46x real time
+on one core with every break stretched.
 
