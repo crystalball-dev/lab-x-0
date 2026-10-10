@@ -3,7 +3,7 @@
 //   LabX0Render --out <file.wav> [--preset <n|name>] [--clear-patterns] [--pattern "<text>"] [--pattern-index 0]
 //               [--pad 1=<ref>] [--break 1=<ref>] [--events "36@0-0.5:127,38@0.5-1"] [--notes 36,38] [--midi-file <file.mid>]
 //               [--seconds 4] [--hold 2] [--velocity 0.8] [--sr 48000] [--block 512] [--bpm 174] [--free]
-//               [--jump "<at s>:<to quarter>"] [--library <dir>] [--specimens <dir>] [--pack <dir>]
+//               [--jump "<at s>:<to quarter>"] [--stop-at <s>] [--library <dir>] [--specimens <dir>] [--pack <dir>]
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
 //               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
 //               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
@@ -65,7 +65,7 @@ namespace
         double bpm = 120.0, sampleRate = 48000.0;
         juce::int64 position = 0;
         bool playing = true;
-        double jumpAtSeconds = -1.0, jumpToQuarter = 0.0;
+        double jumpAtSeconds = -1.0, jumpToQuarter = 0.0, stopAtSeconds = -1.0;
 
         double quarterAt (juce::int64 samples) const
         {
@@ -488,7 +488,7 @@ namespace
         const int window = (int) (0.1 * sampleRate);
         double windowSum = 0.0;
         int windowCount = 0, windowIndex = 0, idleStretches = 0, growth = 0;
-        bool inIdle = false;
+        bool inIdle = false, windowSourced = false;   // a pad or break voice played during the window
         float minSoFar = 1000.0f, worstGrowth = -1000.0f;
         double nextEvent = 0.0;
 
@@ -597,6 +597,7 @@ namespace
             const auto start = juce::Time::getHighResolutionTicks();
             proc.processBlock (view, midi);
             timer.add (ticksToMs (juce::Time::getHighResolutionTicks() - start), 1000.0 * (double) n / sampleRate);
+            const bool voices = proc.activeVoiceCount() > 0;
             if (rnd.nextFloat() < 0.002f)
                 proc.flushFaultLog();
 
@@ -613,19 +614,25 @@ namespace
                 if (inIdle)
                 {
                     windowSum += (double) (l[i] * l[i] + r[i] * r[i]);
+                    windowSourced = windowSourced || voices;
                     if (++windowCount >= window)
                     {
                         const float rmsDb = juce::Decibels::gainToDecibels ((float) std::sqrt (windowSum / (2.0 * windowCount)), -240.0f);
-                        if (windowIndex >= 40 && rmsDb > -80.0f)   // after 4 s: every tail has had time to die
+                        // Once no voice plays, only effect tails are left, and those may only decay. A pad may ring a
+                        // long sample out through the idle stretch, louder and quieter as the sample is: not a runaway.
+                        if (! windowSourced && windowIndex >= 40 && rmsDb > -80.0f)   // after 4 s: every tail has had time to die
                         {
                             const float g = rmsDb - minSoFar;
                             worstGrowth = std::max (worstGrowth, g);
-                            if (g > 6.0f)
-                                ++growth;
+                            if (g > 6.0f && ++growth <= 4)
+                                std::cout << "  growth t=" << juce::String ((double) (pos + i) / sampleRate, 2) << " rms_db=" << juce::String (rmsDb, 1)
+                                          << " min_db=" << juce::String (minSoFar, 1) << proc.describeVoices() << std::endl;
                         }
-                        minSoFar = std::min (minSoFar, rmsDb);
+                        if (! windowSourced)
+                            minSoFar = std::min (minSoFar, rmsDb);
                         windowSum = 0.0;
                         windowCount = 0;
+                        windowSourced = false;
                         ++windowIndex;
                     }
                 }
@@ -870,6 +877,8 @@ int main (int argc, char* argv[])
             playHead.jumpAtSeconds = spec.upToFirstOccurrenceOf (":", false, false).getDoubleValue();
             playHead.jumpToQuarter = spec.fromFirstOccurrenceOf (":", false, false).getDoubleValue();
         }
+        if (args.contains ("--stop-at"))   // the transport stops at the first block from this time (seconds)
+            playHead.stopAtSeconds = option (args, "--stop-at").getDoubleValue();
         proc->setPlayHead (&playHead);
     }
 
@@ -1139,6 +1148,8 @@ int main (int argc, char* argv[])
             if (f.sample >= pos && f.sample < pos + n)
                 midi.addEvent (f.message, (int) (f.sample - pos));
         playHead.position = pos;
+        if (playHead.stopAtSeconds >= 0.0 && (double) pos / sampleRate >= playHead.stopAtSeconds)
+            playHead.playing = false;
         const auto start = juce::Time::getHighResolutionTicks();
         proc->processBlock (view, midi);
         timer.add (ticksToMs (juce::Time::getHighResolutionTicks() - start), 1000.0 * (double) n / sampleRate);

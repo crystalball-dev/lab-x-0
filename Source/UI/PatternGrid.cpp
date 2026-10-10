@@ -261,7 +261,7 @@ namespace labx0::ui
                 {
                     juce::String text;
                     if (lane >= laneFirstBreak)
-                        text = st.slice < 0 ? "x" : juce::String ((int) st.slice);
+                        text = st.slice < 0 ? "x" : juce::String ((int) st.slice + 1);   // slices count from 1, like steps and pads
                     if (st.pitch != 0)
                         text << (st.pitch > 0 ? "+" : "") << (int) st.pitch;
                     g.setColour (Palette::background);
@@ -501,7 +501,7 @@ namespace labx0::ui
                 slice.addItem (600, "Natural (the loop's own position)", true, st.slice < 0);
                 const int n = std::min (naturalSliceCount (lane), 64);
                 for (int k = 0; k < n; ++k)
-                    slice.addItem (601 + k, "Slice " + juce::String (k), true, st.slice == k);
+                    slice.addItem (601 + k, "Slice " + juce::String (k + 1), true, st.slice == k);
                 menu.addSubMenu ("Slice", slice);
             }
             menu.addSeparator();
@@ -736,7 +736,7 @@ namespace labx0::ui
             {
                 g.setColour (Palette::bright);
                 g.setFont (monoFont (9.5f));
-                const auto text = ctx.stripMode == EditorContext::stripSlice && v < 0 ? juce::String ("x") : juce::String (v);
+                const auto text = ctx.stripMode != EditorContext::stripSlice ? juce::String (v) : (v < 0 ? juce::String ("x") : juce::String (v + 1));
                 g.drawText (text, juce::Rectangle<float> (x, area.getY() + 1.0f, cw, 11.0f), juce::Justification::centred);
             }
         }
@@ -938,7 +938,7 @@ namespace labx0::ui
                     handle.addTriangle (x - 4.0f, area.getY(), x + 4.0f, area.getY(), x, area.getY() + 6.0f);
                     g.fillPath (handle);
                 }
-                g.drawText (juce::String ((int) k), juce::Rectangle<float> (x + 1.0f, area.getBottom() - 11.0f, 22.0f, 10.0f),
+                g.drawText (juce::String ((int) k + 1), juce::Rectangle<float> (x + 1.0f, area.getBottom() - 11.0f, 22.0f, 10.0f),
                             juce::Justification::centredLeft);
             }
             juce::String tags;

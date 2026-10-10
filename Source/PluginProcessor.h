@@ -146,6 +146,17 @@ public:
     int injectStage = -1;
     int64_t injectAtSample = -1;
     int padTriggers = 0, breakTriggers = 0;
+    juce::String describeVoices() const;   // what is sounding, for the fuzz session's reports
+    int activeVoiceCount() const noexcept
+    {
+        int n = 0;
+        for (const auto& v : padVoices)
+            n += v.isActive() ? 1 : 0;
+        for (const auto& pair : breakVoices)
+            for (const auto& v : pair)
+                n += v.isActive() ? 1 : 0;
+        return n;
+    }
     void setLibraryOverride (labx0::Root r, const juce::File& f) { library->setRoot (r, f, false); }
    #endif
 

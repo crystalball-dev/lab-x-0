@@ -115,7 +115,7 @@ namespace labx0
     // Text form, used by the factory presets and the harness. Lines (or ';'-separated):
     //   len=32 res=1/16                       pattern length and resolution
     //   p1: x...x...X...o...                  pad 1: . off, x on, X accent, o ghost, 2-4 ratchets, ? 50 %
-    //   b1: 0.1.2.3.x...                      break A: . off, x natural, 0-9 a-z slice index
+    //   b1: 0.1.2.3.x...                      break A: . off, x natural, 0-9 a-z slice index (from 0; the editor shows it from 1)
     //   t: ............ssss                   TIME lane slot characters (see timeSlots)
     //   v: ........eeee....                   VOLUME lane slot characters (see volumeSlots)
     //   p1.vel: 9..5..   p1.prob: 0..5..  p1.rat: ..2.   p1.nudge: .3.c   p1.pitch: 0 0 -5 0   p1.len=12   p1.mute=1

@@ -383,6 +383,12 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     }
 
     blockQps = qps;
+    // The sequencer stopping releases the Legato breaks it holds, as a note-off releases one that MIDI holds (the
+    // host's note-offs end those): a long break no longer plays on for seconds after the transport stops.
+    if (blockRunning && ! running)
+        for (int b = 0; b < numBreaks; ++b)
+            if (breakMidiNote[(size_t) b] < 0 && choiceOf (P::brk (b, P::brGate)) == Choice::gateLegato)
+                breakReleasePending[(size_t) b] = (int64_t) breakSerial[(size_t) b];
     blockRunning = running;
     const float swing = rawValue (P::swing);
     const int numEvents = sequencer.collect (localBank, currentPattern, queuedPattern, queuedFromQ, running, q0, qps, numSamples,
@@ -1235,6 +1241,24 @@ void LabX0AudioProcessor::handleMidi (const juce::MidiMessage& m, int) noexcept
     else if (m.isController() && m.getControllerNumber() == 1)
         modWheelTarget = (float) m.getControllerValue() / 127.0f;
 }
+
+#if LABX0_HARNESS
+juce::String LabX0AudioProcessor::describeVoices() const
+{
+    juce::String s;
+    for (const auto& v : padVoices)
+        if (v.isActive())
+            s << " pad" << (v.getPad() + 1) << (v.isSounding() ? "" : "(fading)") << "@" << juce::String (juce::Decibels::gainToDecibels (v.getLevel(), -120.0f), 1);
+    for (int b = 0; b < numBreaks; ++b)
+        for (int k = 0; k < 2; ++k)
+            if (const auto& v = breakVoices[(size_t) b][(size_t) k]; v.isActive())
+                s << " break" << breakLetter (b) << k << (v.isSounding() ? "" : "(fading)") << "@" << (int) v.getPosition()
+                  << (breakCurrent[(size_t) b] == k ? "*" : "") << " midi=" << breakMidiNote[(size_t) b] << " gate=" << choiceOf (P::brk (b, P::brGate))
+                  << " " << bank.getRef (slotFirstBreak + b).displayName();
+    s << " | run=" << choiceOf (P::run) << " host=" << (int) hostPlaying << " pattern=" << currentPattern << " anomaly_mix=" << rawValue (P::anomalyMix);
+    return s;
+}
+#endif
 
 void LabX0AudioProcessor::allSoundOff() noexcept
 {

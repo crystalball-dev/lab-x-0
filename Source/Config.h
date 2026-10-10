@@ -4,7 +4,7 @@ namespace labx0
 {
     inline constexpr const char* pluginName    = "LAB X-0";
     inline constexpr const char* vendorName    = "OPERATION FAIRWAY, LLC";
-    inline constexpr const char* versionString = "0.2.1";
+    inline constexpr const char* versionString = "0.2.2";
     inline constexpr const char* projectUrl    = "github.com/crystalball-dev/lab-x-0";
 
     inline constexpr int numPads     = 16;

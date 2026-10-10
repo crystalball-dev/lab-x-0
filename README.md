@@ -27,7 +27,7 @@ LAB X-0 is a fan project. It is not affiliated with or endorsed by GSC Game Worl
 
 ## Playing it in FL Studio
 
-- **Patterns follow FL.** With RUN on Host, LAB X-0 plays its current pattern whenever FL's transport runs, locked to the song position. Loop a bar in the playlist and the pattern loops with it. PLAY switches RUN to Free: the patterns then run on the internal clock at the last tempo FL reported, for the standalone app or with FL stopped.
+- **Patterns follow FL.** With RUN on Host, LAB X-0 plays its current pattern whenever FL's transport runs, locked to the song position. Stop FL and the breaks stop with it; pads ring out. Loop a bar in the playlist and the pattern loops with it. PLAY switches RUN to Free: the patterns then run on the internal clock at the last tempo FL reported, for the standalone app or with FL stopped.
 - **MIDI.** Notes 36 to 51 play the pads (FL calls them C3 to D#4). Notes 52 to 55 start the break slots. Notes 60 to 91 play slices 1 to 32 of the slot chosen in SLICE MIDI, and on MIDI channels 2 to 5 (FL's note colours 2 to 5) the slices of break A to D instead. Notes 96 to 111 switch to patterns 1 to 16 at the end of the current pattern. The mod wheel adds to EMISSION.
 - **Programming a break.** Select a break lane, click steps on, and leave them natural (`x`) to play the break as recorded, or open the SLICE strip and give steps other slices. Ratchet a slice for a roll. Put Springboard 1/16 in the TIME lane under the last beat for a stutter, or Vortex for a reverse.
 - **Mixing.** Keep the kick and sub on DRY or under SUB SAFE, and push the breaks through PUNCH.

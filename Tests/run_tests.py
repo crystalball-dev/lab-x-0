@@ -10,7 +10,7 @@ missing. Writes WAVs to Tests/out (ignored by git) and a JSON report to build/te
 Test numbers follow LAB_X0_HANDOFF.md section 5; docs/DESIGN.md says where a test was redefined. Tests 28 and 29 are
 the LAB-X series regression checks: the runaway guard, and a long idle with the transport playing. Test 30 guards the
 0.1.1 fix: queued pattern switches on bar lines that fall on block edges. Test 35 guards 0.2.1: RENDER's MIDI file
-plays back into LAB X-0 as the render.
+plays back into LAB X-0 as the render. Test 36 guards 0.2.2: stopping the transport releases the breaks.
 """
 
 import argparse
@@ -715,7 +715,7 @@ def pip_track(wav, beat, count=15):
 def t18_break_fit(T):
     pips = fx("tempo/pips_172bpm.wav")
     base = INIT + ["--bpm", BPM, "--break", "1=" + pips, "--set", "b1_route=2", "--seconds", "5.6"]
-    # SLICE plays each slice from its start, 1 ms before the hit (slice 0 starts at the file start): 1.2 ms allowed.
+    # SLICE plays each slice from its start, 1 ms before the hit (the first slice starts at the file start): 1.2 ms allowed.
     cases = (("REPITCH", ["b1_fit=0"], pat(["b1:x"], 64), 1000.0 * BPM / 172.0, 0.0005, 2.0),
              ("SLICE", ["b1_fit=1"], pat(["b1:" + "x" * 64], 64), 1000.0, 0.0012, 2.0),
              ("STRETCH", ["b1_fit=2"], pat(["b1:x"], 64), 1000.0, 0.015, 3.0),
@@ -1092,7 +1092,7 @@ def t32_slices_regions(T):
     found = detect_onsets(m, sr, rel=0.25, min_gap=0.05)
     expected = [0.2 + (24000 - 23952) / 48000, 0.2 + (30000 - 23952) / 48000, 0.2 + (36000 - 23952) / 48000, 0.2 + (48000 - 23952) / 48000]
     ok, _ = match_times(found, expected, 1.01 / sr)
-    T.record(32, "MIDI slice 2 plays the hand-placed slice 2 (sample 23952), not the automatic one", clean(st) and clean(st_a) and ok,
+    T.record(32, "MIDI note 61 plays the hand-placed slice 2 (sample 23952), not the automatic one", clean(st) and clean(st_a) and ok,
              {"onsets_s": [round(t, 4) for t in found], "expected_s": [round(t, 4) for t in expected]})
 
     wav, st = render("region_pad", INIT + ["--pad", "1=" + loop + "@0.5,0.1", "--set", "p01_route=2", "--events", "36@0.1-0.8:127",
@@ -1308,14 +1308,17 @@ def t35_midi_roundtrip(T):
     if not mid.exists():
         return
 
-    body = 2 * 96000
     mix, _ = load(folder / "Pattern 01 mix.wav")
-    wav, st2 = render("render_midi_replay", kit + ["--midi-file", mid, "--seconds", "4.25"])
+    wav, st2 = render("render_midi_replay", kit + ["--midi-file", mid, "--seconds", "6"])
     replay, _ = load(wav)
-    n = body - 256    # the file ends the breaks' notes with the last pass; the limiter's look-ahead sees that release
+    # The whole file, tails included: the render's transport stops with the last pass, which releases the breaks as
+    # the file's note-offs there do (0.2.2).
+    n = len(mix)
     diff = float(np.abs(mix[:n] - replay[:n]).max())
-    T.record(35, "played into LAB X-0 with no pattern, the file gives the rendered mix to 24-bit precision (2 passes)",
-             clean(st2) and diff < 3e-7, {"max_diff": diff, "events": st2.get("midi_file_events")})
+    after = rms_db(replay[n:]) if len(replay) > n else -240.0
+    T.record(35, "played into LAB X-0 with no pattern, the file gives the rendered mix to 24-bit precision, tails included",
+             clean(st2) and diff < 3e-7 and after < -90, {"max_diff": diff, "samples": n, "after_mix_db": round(after, 1),
+                                                        "events": st2.get("midi_file_events")})
 
     old = OUT / "render_midi_ch1.mid"
     midi_on_channel_one(mid, old)
@@ -1337,6 +1340,30 @@ def t35_midi_roundtrip(T):
     T.record(35, "a natural break start between slices and a pitched step are named on the status line, and still written",
              st3.get("render_midi") == want and sorted(t for t, _, _, ch in notes3 if ch == 2) == [0, 720],
              {"render_midi": st3.get("render_midi"), "break_ticks": sorted(t for t, _, _, ch in notes3 if ch == 2)})
+
+
+def t36_stop_releases(T):
+    """Stopping the transport (0.2.2) releases the Legato breaks the step sequencer holds, as FL's note-offs release the
+    ones MIDI holds; pads ring out as before, and RUN on Free keeps playing. Found by the fuzz session: a long break
+    played on for seconds after the stop."""
+    common = INIT + ["--bpm", "120", "--break", "1=" + fx("sweep.wav"), "--pattern", pat(["b1:x"]), "--seconds", "3"]
+    wav, st = render("stop_break", common + ["--stop-at", "1.0"])
+    m, sr = load_mono(wav)
+    playing = rms_db(m[int(0.5 * sr):int(0.9 * sr)])
+    stopped = rms_db(m[int(1.1 * sr):])
+    T.record(36, "a break the sequencer started stops within 0.1 s of the transport stopping (a 30 ms release)",
+             clean(st) and playing > -30 and stopped < -90, {"playing_db": round(playing, 1), "after_stop_db": round(stopped, 1)})
+
+    wav, st = render("stop_pad", INIT + ["--bpm", "120", "--pad", "1=" + fx("tone_1000_long.wav"), "--pattern", pat(["p1:x"]),
+                                        "--seconds", "3", "--stop-at", "1.0"])
+    m, sr = load_mono(wav)
+    ringing = rms_db(m[int(1.5 * sr):int(2.5 * sr)])
+    T.record(36, "a pad still rings out after the stop", clean(st) and ringing > -30, {"after_stop_db": round(ringing, 1)})
+
+    wav, st = render("stop_free", INIT + ["--break", "1=" + fx("sweep.wav"), "--pattern", pat(["b1:x"]), "--free", "--seconds", "2"])
+    m, sr = load_mono(wav)
+    level = rms_db(m[int(1.0 * sr):])
+    T.record(36, "with RUN on Free (no transport) the break plays on", clean(st) and level > -30, {"level_db": round(level, 1)})
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1377,7 +1404,7 @@ def main():
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
              (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
-             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode), (34, t34_render), (35, t35_midi_roundtrip)]
+             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode), (34, t34_render), (35, t35_midi_roundtrip), (36, t36_stop_releases)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(LABX0 VERSION 0.2.1 LANGUAGES C CXX)
+project(LABX0 VERSION 0.2.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,7 +16,7 @@ add_subdirectory("${LABX0_JUCE_PATH}" JUCE)
 
 juce_add_plugin(LabX0
     PRODUCT_NAME "LAB X-0"
-    VERSION 0.2.1
+    VERSION 0.2.2
     COMPANY_NAME "OPERATION FAIRWAY, LLC"
     COMPANY_WEBSITE "https://github.com/crystalball-dev/lab-x-0"
     BUNDLE_ID com.operationfairway.labx0

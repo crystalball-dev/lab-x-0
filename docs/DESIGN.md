@@ -345,3 +345,33 @@ natural break start between slices names both on the status line and still write
 
 Verification: the full suite passes, 35 tests and 90 checks, pluginval strictness 10, 44x real time on one core. The
 300-second fuzz session now sends a third of its notes on channels 2-5.
+
+## 0.2.2: slices count from 1; stopping the transport stops the breaks
+
+**Slices count from 1.** Raised by the session writing the user guide: the editor numbered slices from 0 (step cells,
+the SLICE strip, the step menu and the waveform's markers) while the README, the MIDI map and the RENDER status line
+counted from 1. The editor now counts from 1 as well, like steps, pads, patterns and MIDI channels: MIDI note 60
+(FL's C5) is slice 1. Only the labels changed; patterns and the state still store the slice index from 0, as the
+pattern text format does.
+
+**Stopping the transport releases the breaks.** Found by the 300-second fuzz session while verifying the above: in an
+idle stretch (transport stopped) a break the step sequencer had started, Legato, a long file, played on for seconds
+and grew louder with the file. A break MIDI holds was already released at the stop, by the host's note-offs; one the
+sequencer held played to the end of its file. Now the sequencer stopping (the host's transport, or STOP with RUN on
+Free) releases the Legato breaks it holds, the same 30 ms release as a note-off, through the same wait for the end of
+the instant (a start at that sample wins). Pads ring out as before; RUN on Free keeps playing. RENDER's transport
+stops with the last pass, so a break no longer plays on into the tail: test 35's mix is 196,766 samples where it was
+288,000, and its MIDI file now gives the mix over the whole file, tails included (1.2e-7), since the file's note-offs
+at the end of the last pass release the breaks at the same sample.
+
+Test 36: a break on a ten-second sweep stops within 0.1 s of the transport stopping (-102 dB after it, -11 dB
+before), a pad holding an eight-second tone rings on, and with RUN on Free the break plays on.
+
+The fuzz session's idle check (test 26) is redefined: it judged every 100 ms window after the first 4 s of an idle
+stretch, which a pad ringing out a long sample can fail by being a louder part of its own sample (seed 11 did, by
+6.1 dB). It now judges the windows in which no pad or break voice plays: only effect tails are left then, and those
+may only decay, which is the runaway it is there to catch. Seeds 1, 3, 5, 7, 9 and 11 pass; the harness prints what
+was sounding when a window fails.
+
+Verification: the full suite passes, 36 tests and 93 checks, pluginval strictness 10, 44x real time on one core.
+
