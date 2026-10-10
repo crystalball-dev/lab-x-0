@@ -32,8 +32,11 @@ namespace labx0::ui
             status.setFont (monoFont (10.5f));
             status.setColour (juce::Label::textColourId, Palette::phosphor);
             status.setJustificationType (juce::Justification::centredLeft);
+            midiStatus.setFont (monoFont (9.5f));
+            midiStatus.setColour (juce::Label::textColourId, Palette::dim);
+            midiStatus.setJustificationType (juce::Justification::centredLeft);
             for (auto* c : std::initializer_list<juce::Component*> { &whatBox, &passesBox, &renderButton, &folderButton, &closeButton, &status,
-                                                                      &dragAll, &viewport })
+                                                                      &midiStatus, &dragAll, &viewport })
                 addAndMakeVisible (c);
             viewport.setViewedComponent (&list, false);
             viewport.setScrollBarsShown (true, false);
@@ -84,6 +87,7 @@ namespace labx0::ui
             passesBox.setBounds (row.reduced (2, 1));
             b.removeFromTop (4);
             status.setBounds (b.removeFromTop (20));
+            midiStatus.setBounds (b.removeFromTop (16));
             b.removeFromBottom (16);
             auto bottom = b.removeFromBottom (26);
             closeButton.setBounds (bottom.removeFromRight (90).reduced (2, 1));
@@ -188,6 +192,9 @@ namespace labx0::ui
                 text << "  " << juce::String ((int) std::lround (s.progress * 100.0f)) << " %";
             if (status.getText() != text)
                 status.setText (text, juce::dontSendNotification);
+            const auto midiText = s.running ? juce::String() : s.midi;
+            if (midiStatus.getText() != midiText)
+                midiStatus.setText (midiText, juce::dontSendNotification);
             const int v = ctx.processor.getRenderVersion();
             if (v != seenVersion)
             {
@@ -214,7 +221,7 @@ namespace labx0::ui
         EditorContext& ctx;
         juce::ComboBox whatBox, passesBox;
         juce::TextButton renderButton { "RENDER" }, folderButton { "OPEN FOLDER" }, closeButton { "CLOSE" };
-        juce::Label status;
+        juce::Label status, midiStatus;
         juce::Viewport viewport;
         juce::Component list;
         juce::OwnedArray<FileRow> rows;

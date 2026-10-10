@@ -9,7 +9,8 @@ missing. Writes WAVs to Tests/out (ignored by git) and a JSON report to build/te
 
 Test numbers follow LAB_X0_HANDOFF.md section 5; docs/DESIGN.md says where a test was redefined. Tests 28 and 29 are
 the LAB-X series regression checks: the runaway guard, and a long idle with the transport playing. Test 30 guards the
-0.1.1 fix: queued pattern switches on bar lines that fall on block edges.
+0.1.1 fix: queued pattern switches on bar lines that fall on block edges. Test 35 guards 0.2.1: RENDER's MIDI file
+plays back into LAB X-0 as the render.
 """
 
 import argparse
@@ -1150,7 +1151,7 @@ def t33_explode(T):
 
 
 def midi_note_ons(path):
-    """(tick, note, velocity) of every note-on in a standard MIDI file, and its ticks per quarter."""
+    """(tick, note, velocity, channel 1-16) of every note-on in a standard MIDI file, and its ticks per quarter."""
     data = pathlib.Path(path).read_bytes()
     if data[:4] != b"MThd":
         return [], 0
@@ -1195,7 +1196,7 @@ def midi_note_ons(path):
                     a, b = body[i], body[i + 1]
                     i += 2
                     if kind_ == 0x90 and b > 0:
-                        notes.append((tick, a, b))
+                        notes.append((tick, a, b, (status & 0x0F) + 1))
     return notes, division
 
 
@@ -1226,7 +1227,7 @@ def t34_render(T):
                                                 "body_s": round(8 * BEAT, 4), "file_s": round(len(mix) / sr, 4)})
 
     notes, division = midi_note_ons(folder / "Pattern 01.mid")
-    times = sorted((round(t / division * 60.0 / BPM, 4), note) for t, note, _ in notes)
+    times = sorted((round(t / division * 60.0 / BPM, 4), note) for t, note, *_ in notes)
     want = sorted([(round(k * 4 * STEP, 4), 36) for k in range(8)] + [(round((2 + 4 * k) * STEP, 4), 37) for k in range(8)])
     worst = max((abs(x[0] - y[0]) for x, y in zip(times, want)), default=1.0)
     T.record(34, "the MIDI file holds every hit as played: pads on notes 36 and 37 at their steps", len(times) == len(want)
@@ -1245,6 +1246,97 @@ def t34_render(T):
         found = detect_onsets(x, sr, rel=0.25, min_gap=0.1)
         ok, _ = match_times(found, [(2 + 4 * k) * STEP for k in range(4)], 0.00025)
     T.record(34, "a selected-lane render holds that lane only", ok, {"files": lane_files})
+
+
+def midi_on_channel_one(src, dst):
+    """A copy of a MIDI file with every note on channel 1, as LAB X-0 0.2.0 wrote them."""
+    data = bytearray(pathlib.Path(src).read_bytes())
+    pos = 14
+    while pos + 8 <= len(data):
+        kind, size = bytes(data[pos:pos + 4]), struct.unpack(">I", data[pos + 4:pos + 8])[0]
+        start, end, pos = pos + 8, pos + 8 + size, pos + 8 + size
+        if kind != b"MTrk":
+            continue
+        i, status = start, 0
+        while i < end:
+            while data[i] & 0x80:
+                i += 1
+            i += 1
+            if data[i] >= 0x80:
+                status = data[i]
+                if status & 0xE0 == 0x80:
+                    data[i] = status & 0xF0
+                i += 1
+            if status == 0xFF:
+                i += 1
+                length = 0
+                while True:
+                    b = data[i]
+                    i += 1
+                    length = (length << 7) | (b & 0x7F)
+                    if b < 0x80:
+                        break
+                i += length
+            elif status & 0xF0 in (0xC0, 0xD0):
+                i += 1
+            else:
+                i += 2
+    pathlib.Path(dst).write_bytes(bytes(data))
+
+
+def t35_midi_roundtrip(T):
+    """RENDER's MIDI file (0.2.1) plays back into LAB X-0 as the render: pads on channel 1 for their gate, breaks A-D
+    on channels 2-5 as slice notes held until their next start, and what a note cannot hold is named."""
+    kit = INIT + ["--bpm", "120", "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"), "--set", "p02_mode=2",
+                  "--break", "1=" + fx("slicing/click_loop.wav"), "--set", "b1_fit=1",
+                  "--break", "2=" + fx("sweep.wav"), "--slices", "2=0,24000,48000,72000,96000,120000,144000,168000"]
+    # Pad 2 gated with a ratchet; break A natural on its slices; break B's explicit slices (on a sweep, so a wrong
+    # slice or break cannot pass). At 120 BPM and 48 kHz a tick is 25 samples, so the file can be exact.
+    rows = ["p1:x...x...x...x...", "p2:..x...x...x..3..", "p2.vel:..5...9...7..9..", "b1:x.x.x..xx...x...",
+            "b2:..3.1...5...2.0."]
+    folder = OUT / "render_midi"
+    if folder.exists():
+        shutil.rmtree(folder)
+    _, st = render("render_midi_cmd", kit + ["--pattern", pat(rows), "--render", folder, "--render-passes", "2"])
+    mid = folder / "Pattern 01.mid"
+    notes, division = midi_note_ons(mid) if mid.exists() else ([], 0)
+    by_channel = {c: sorted(n for _, n, _, ch in notes if ch == c) for c in (1, 2, 3)}
+    ok = (st.get("render_midi", "").startswith("MIDI: PADS ON CHANNEL 1") and division == 960
+          and sorted({ch for *_, ch in notes}) == [1, 2, 3] and set(by_channel[3]) == {60, 61, 62, 63, 65})
+    T.record(35, "the MIDI file puts pads on channel 1 and break B's slices on channel 3 (notes 60 and up)", ok,
+             {"render_midi": st.get("render_midi"), "channels": {c: len(v) for c, v in by_channel.items()}, "b_notes": sorted(set(by_channel[3]))})
+    if not mid.exists():
+        return
+
+    body = 2 * 96000
+    mix, _ = load(folder / "Pattern 01 mix.wav")
+    wav, st2 = render("render_midi_replay", kit + ["--midi-file", mid, "--seconds", "4.25"])
+    replay, _ = load(wav)
+    n = body - 256    # the file ends the breaks' notes with the last pass; the limiter's look-ahead sees that release
+    diff = float(np.abs(mix[:n] - replay[:n]).max())
+    T.record(35, "played into LAB X-0 with no pattern, the file gives the rendered mix to 24-bit precision (2 passes)",
+             clean(st2) and diff < 3e-7, {"max_diff": diff, "events": st2.get("midi_file_events")})
+
+    old = OUT / "render_midi_ch1.mid"
+    midi_on_channel_one(mid, old)
+    wav, _ = render("render_midi_replay_ch1", kit + ["--midi-file", old, "--seconds", "4.25"])
+    replay_old, _ = load(wav)
+    miss = float(np.abs(mix[:n] - replay_old[:n]).max())
+    T.record(35, "control: the same notes all on channel 1 (0.2.0's file) play break B's slices from break A", miss > 0.1,
+             {"max_diff": round(miss, 3)})
+
+    approx = OUT / "render_midi_approx"
+    if approx.exists():
+        shutil.rmtree(approx)
+    _, st3 = render("render_midi_approx_cmd", INIT + ["--bpm", "120", "--pad", "1=" + fx("click.wav"),
+                                                     "--break", "1=" + fx("slicing/click_loop.wav"),
+                                                     "--pattern", pat(["p1:x...x...", "p1.pitch: 0 . . . 7", "b1:2..x"]),
+                                                     "--render", approx])
+    notes3, _ = midi_note_ons(approx / "Pattern 01.mid") if (approx / "Pattern 01.mid").exists() else ([], 0)
+    want = "MIDI APPROXIMATE: 1 BREAK HIT STARTS BETWEEN SLICES (MOVED TO THE NEAREST), 1 HIT WITH STEP PITCH PLAYS UNPITCHED"
+    T.record(35, "a natural break start between slices and a pitched step are named on the status line, and still written",
+             st3.get("render_midi") == want and sorted(t for t, _, _, ch in notes3 if ch == 2) == [0, 720],
+             {"render_midi": st3.get("render_midi"), "break_ticks": sorted(t for t, _, _, ch in notes3 if ch == 2)})
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1285,7 +1377,7 @@ def main():
              (19, t19_anomaly), (20, t20_buffer), (21, t21_multiband), (22, t22_slam_clip), (23, t23_transient), (24, t24_editor),
              (25, lambda t: t25_presets(t, presets)), (26, lambda t: t26_state_fuzz_cpu(t, args.fuzz_seconds, presets)),
              (27, t27_pluginval), (28, t28_guard), (29, lambda t: t29_idle(t, presets)), (30, t30_pattern_switch),
-             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode), (34, t34_render)]
+             (31, t31_outputs), (32, t32_slices_regions), (33, t33_explode), (34, t34_render), (35, t35_midi_roundtrip)]
     for number, fn in tests:
         if only is not None and number not in only:
             continue

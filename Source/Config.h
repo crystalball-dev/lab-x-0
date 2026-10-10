@@ -4,7 +4,7 @@ namespace labx0
 {
     inline constexpr const char* pluginName    = "LAB X-0";
     inline constexpr const char* vendorName    = "OPERATION FAIRWAY, LLC";
-    inline constexpr const char* versionString = "0.2.0";
+    inline constexpr const char* versionString = "0.2.1";
     inline constexpr const char* projectUrl    = "github.com/crystalball-dev/lab-x-0";
 
     inline constexpr int numPads     = 16;
@@ -36,4 +36,5 @@ namespace labx0
     inline constexpr int midiFirstSlice   = 60;   // 60..91  slices 1-32 of the SLICE MIDI slot
     inline constexpr int midiSliceCount   = 32;
     inline constexpr int midiFirstPattern = 96;   // 96..111 pattern select at the next pattern boundary
+    inline constexpr int midiFirstBreakChannel = 2;   // channels 2..5: notes 60..91 play slices of break A-D
 }

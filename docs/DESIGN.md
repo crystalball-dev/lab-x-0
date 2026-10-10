@@ -84,7 +84,8 @@ DRY waits the same time, so all three routes stay aligned.
   exactly one block. Host jumps and loops resynchronise; small ppq wobbles are snapped to the previous block's end.
   RUN Free uses an internal clock at the last known tempo.
 - **MIDI**: notes 36-51 play pads 1-16, 52-55 break slots A-D from their start, 60-91 slices 1-32 of the SLICE MIDI
-  slot, 96-111 select a pattern at the next pattern boundary; CC1 adds to EMISSION.
+  slot (on channels 2-5, of break A-D: 0.2.1), 96-111 select a pattern at the next pattern boundary; CC1 adds to
+  EMISSION.
 - **Breaks**: tempo comes from an ACID chunk, then the file name (an explicit "bpm" token, or a bare 2-3 digit
   number that makes the file a whole number of beats within 3 %), then the two folders above it (explicit only),
   then an estimate (spectral-flux autocorrelation). An estimate is ambiguous by an octave, so it takes the octave
@@ -203,7 +204,7 @@ Bass Explorer loops, 808, FPC, RealDrumkits, Vintage), the ZONE KIT and the PACK
 
 - REX2 files are read only by the test suite (as a reference); the plugin plays the WAV copies.
 - MS-ADPCM WAVs (40 files in the user's library) are not supported and say so.
-- No MIDI import, song mode or audio export.
+- No MIDI file import into patterns, and no song mode.
 - FL Studio cannot be scanned headlessly: after installing, the user scans plugins and does the listening pass.
 - The presets and the ZONE KIT pin paths inside STALKER SPECIMENS and FL's `stalker sounds`; `docs/PINNED_PATHS.md`
   lists them for the library's maintenance tools.
@@ -293,7 +294,8 @@ lane, for 1 to 8 passes. A second engine instance is made and destroyed on the m
 thread from the same state; its transport plays from beat 0, stops exactly at the end of the last pass (a block ends
 there, so no hit of the next pass slips in) and the tails ring out, trimmed at -90 dBFS. Stems take the mix's length,
 so dropped at one bar they line up. A MIDI file of the hits as played (swing, nudge, ratchets and probability
-included; pads on 36-51, breaks on 52-55, explicit slices on 60-91) goes with the mix. The files go to
+included; pads on 36-51, breaks on 52-55, explicit slices on 60-91, all on channel 1; 0.2.1 changed this, below) goes
+with the mix. The files go to
 `Documents\LAB X-0\Renders\<date time> Pattern NN` as 24-bit WAV; each row of the list, or DRAG ALL, starts an
 external drag (JUCE `performExternalDragDropOfFiles`) onto the host's playlist or Explorer. A plugin cannot put clips
 in FL's playlist itself, so the drag is the consolidate step. Test 34: the mix equals a direct render to 24-bit
@@ -307,3 +309,39 @@ documented but was not testable here (FL cannot be driven headlessly), so it is 
 Verification: the full suite passes, 34 tests and 86 checks, pluginval strictness 10 with all 21 outputs, 46x real time
 on one core with every break stretched.
 
+## 0.2.1: a MIDI file that plays back as the render
+
+Raised by the session writing the user guide: RENDER's MIDI file wrote every note on channel 1, so explicit slices of
+breaks B to D (notes 60 and up) played back from the SLICE MIDI slot, and natural break steps (notes 52-55) restarted
+their break from the top instead of the point the loop had reached.
+
+- **The live MIDI map.** On MIDI channels 2-5, notes 60-91 play slices 1-32 of break A-D; on any other channel they
+  play the SLICE MIDI slot as before. Pads, break starts and pattern notes answer on every channel. FL Studio sends a
+  wrapped plugin each note colour as its own MIDI channel (colour 1 is channel 1), and a MIDI file imported into the
+  piano roll keeps its channels as colours.
+- **The file** is written from what the engine started, not from the steps: pads on channel 1 for their gate (where a
+  Gate pad releases; cut at the pad's next hit), and each break start on its break's channel as the note of the slice
+  it starts on, held until the break's next start or the end of the last pass, as the step sequencer holds it. A
+  natural step that plays on through (the break is already there) starts nothing and writes nothing.
+- **Touching notes.** A Legato break releases at its note-off; the step sequencer never releases. A note-off now waits
+  until every event at its sample is in: if the same break starts again at that sample, the new start's crossfade
+  cuts the old voice alone, as the sequencer does, and a note-off at the very sample its note started ends the note
+  before it. FL plays touching notes as an end and a start at one instant, so a line of held notes plays like the
+  step sequencer.
+- Explicit slice steps now start where slice notes do (at least one sample in): one sample later than before for a
+  slice at the very start of the file.
+- **What a note cannot hold**: step pitch, and a break start between slices (a natural step with FIT on REPITCH or
+  STRETCH, unless it lands on a slice). The file writes those unpitched and at the nearest slice, and the RENDER
+  panel's second status line counts them; otherwise it reads MIDI: PADS ON CHANNEL 1, BREAKS A-D ON CHANNELS 2-5.
+  Slices past 32 have no note; their starts are left out and counted too. Timing is 960 ticks per quarter, which FL
+  rounds to the project's PPQ.
+
+Test 35: at 120 BPM and 48 kHz (a tick is 25 samples), a two-pass render with a gated, ratcheted pad, break A on its
+slices and break B's explicit slices on a sweep (so a wrong slice or break cannot pass) writes channels 1-3, and the
+file played into LAB X-0 with no pattern gives the rendered mix to 1.2e-7 up to the last 256 samples, where the file
+ends the breaks' notes and the limiter's look-ahead sees the release. The same notes all on channel 1 (0.2.0's file)
+miss by 0.93, and with the same-instant rule removed the replay misses by 0.65. A pattern with a pitched step and a
+natural break start between slices names both on the status line and still writes the hit.
+
+Verification: the full suite passes, 35 tests and 90 checks, pluginval strictness 10, 44x real time on one core. The
+300-second fuzz session now sends a third of its notes on channels 2-5.

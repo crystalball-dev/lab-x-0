@@ -1,7 +1,7 @@
 // LabX0Render: drives the LAB X-0 processor offline.
 //
 //   LabX0Render --out <file.wav> [--preset <n|name>] [--clear-patterns] [--pattern "<text>"] [--pattern-index 0]
-//               [--pad 1=<ref>] [--break 1=<ref>] [--events "36@0-0.5:127,38@0.5-1"] [--notes 36,38]
+//               [--pad 1=<ref>] [--break 1=<ref>] [--events "36@0-0.5:127,38@0.5-1"] [--notes 36,38] [--midi-file <file.mid>]
 //               [--seconds 4] [--hold 2] [--velocity 0.8] [--sr 48000] [--block 512] [--bpm 174] [--free]
 //               [--jump "<at s>:<to quarter>"] [--library <dir>] [--specimens <dir>] [--pack <dir>]
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
@@ -479,7 +479,7 @@ namespace
         const double cycle = 30.0, activeSpan = 20.0;
         juce::AudioBuffer<float> block (2, 4096);
 
-        std::vector<int> held;
+        std::vector<int> held;   // channel * 128 + note
         int events = 0, presetChanges = 0, paramChanges = 0, patternEdits = 0;
         long nonFinite = 0;
         float peak = 0.0f;
@@ -529,13 +529,14 @@ namespace
                     if (r < 0.35f && held.size() < 12)
                     {
                         const int note = rnd.nextBool() ? midiFirstPad + rnd.nextInt (16) : (rnd.nextBool() ? midiFirstSlice + rnd.nextInt (32) : midiFirstBreak + rnd.nextInt (4));
-                        midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) (20 + rnd.nextInt (108))), offset);
-                        held.push_back (note);
+                        const int channel = rnd.nextFloat() < 0.3f ? 2 + rnd.nextInt (4) : 1;   // 2-5: slices of break A-D
+                        midi.addEvent (juce::MidiMessage::noteOn (channel, note, (juce::uint8) (20 + rnd.nextInt (108))), offset);
+                        held.push_back (channel * 128 + note);
                     }
                     else if (r < 0.55f && ! held.empty())
                     {
                         const int k = rnd.nextInt ((int) held.size());
-                        midi.addEvent (juce::MidiMessage::noteOff (1, held[(size_t) k]), offset);
+                        midi.addEvent (juce::MidiMessage::noteOff (held[(size_t) k] / 128, held[(size_t) k] % 128), offset);
                         held.erase (held.begin() + k);
                     }
                     else if (r < 0.58f)
@@ -1001,7 +1002,7 @@ int main (int argc, char* argv[])
         request.pattern = proc->getEditPattern();
         request.sampleRate = sampleRate;
         const auto status = proc->renderNow (request);
-        std::cout << "render=\"" << status.text << "\" render_files=" << status.files.size() << std::endl;
+        std::cout << "render=\"" << status.text << "\" render_files=" << status.files.size() << " render_midi=\"" << status.midi << "\"" << std::endl;
         for (const auto& f : status.files)
         {
             std::cout << "  file " << f.getFileName();
@@ -1053,6 +1054,27 @@ int main (int argc, char* argv[])
     {
         for (const auto& token : juce::StringArray::fromTokens (option (args, "--notes"), ",", ""))
             events.push_back ({ token.getIntValue(), 0.0, hold, velocity });
+    }
+
+    // --midi-file <path>: a standard MIDI file (RENDER's) played into the engine at its own tempo, channels kept.
+    struct FileEvent { juce::int64 sample; juce::MidiMessage message; };
+    std::vector<FileEvent> fileEvents;
+    if (args.contains ("--midi-file"))
+    {
+        juce::FileInputStream in (juce::File (option (args, "--midi-file")));
+        juce::MidiFile file;
+        if (! in.openedOk() || ! file.readFrom (in))
+        {
+            std::cerr << "cannot read the MIDI file" << std::endl;
+            return 2;
+        }
+        file.convertTimestampTicksToSeconds();
+        for (int t = 0; t < file.getNumTracks(); ++t)
+            for (const auto* holder : *file.getTrack (t))
+                if (holder->message.isNoteOnOrOff())
+                    fileEvents.push_back ({ (juce::int64) std::llround (holder->message.getTimeStamp() * sampleRate), holder->message });
+        std::stable_sort (fileEvents.begin(), fileEvents.end(), [] (const FileEvent& a, const FileEvent& b) { return a.sample < b.sample; });
+        std::cout << "midi_file_events=" << fileEvents.size() << std::endl;
     }
 
     struct ProgramChange { int index; double time; };
@@ -1113,6 +1135,9 @@ int main (int argc, char* argv[])
             if (at >= pos && at < pos + n)
                 midi.addEvent (juce::MidiMessage::controllerEvent (1, c.cc, c.value), at - pos);
         }
+        for (const auto& f : fileEvents)
+            if (f.sample >= pos && f.sample < pos + n)
+                midi.addEvent (f.message, (int) (f.sample - pos));
         playHead.position = pos;
         const auto start = juce::Time::getHighResolutionTicks();
         proc->processBlock (view, midi);

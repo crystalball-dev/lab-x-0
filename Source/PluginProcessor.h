@@ -88,6 +88,7 @@ public:
         bool running = false;
         float progress = 0.0f;
         juce::String text;
+        juce::String midi;               // what the MIDI file holds, or what it could not
         juce::Array<juce::File> files;   // WAVs, then the MIDI file
         juce::File folder;
     };
@@ -194,7 +195,10 @@ private:
     void triggerBreakSlice (int b, int slice, float velocity, int note) noexcept;
     const SliceCache& slicesFor (int b, const labx0::dsp::SampleData* d) noexcept;
     double loopBeats (int b, const labx0::dsp::SampleData* d) const noexcept;
-    void releaseMidiNote (int note) noexcept;
+    void releaseMidiNote (int channel, int note) noexcept;
+    void releaseAllMidiNotes() noexcept;
+    void applyPendingReleases() noexcept;
+    static int midiKey (int channel, int note) noexcept { return (channel - 1) * 128 + note; }
     void allSoundOff() noexcept;
     void flushForProgramChange() noexcept;
     void recoverFromFault() noexcept;
@@ -224,7 +228,11 @@ private:
     std::array<labx0::dsp::PadVoice, labx0::maxPadVoices> padVoices;
     std::array<std::array<labx0::dsp::BreakVoice, 2>, labx0::numBreaks> breakVoices;
     std::array<int, labx0::numBreaks> breakCurrent {};
-    std::array<int, labx0::numBreaks> breakMidiNote {};
+    std::array<int, labx0::numBreaks> breakMidiNote {};           // midiKey of the MIDI note holding the break, -1 none
+    // A Legato break's note-off waits until every event at its sample is in: a retrigger at that sample cuts the voice
+    // itself, so a note-off and the next note at the same instant (touching notes) play like the step sequencer.
+    std::array<uint32_t, labx0::numBreaks> breakSerial {}, breakSerialRendered {};
+    std::array<int64_t, labx0::numBreaks> breakReleasePending {};  // the serial a note-off saw, -1 none
     std::array<SliceCache, labx0::numBreaks> sliceCaches {};
 
     struct CustomSlices
@@ -340,8 +348,9 @@ private:
     struct RecordedHit
     {
         juce::int64 sample = 0;
-        int lane = 0, slice = -1, gateSamples = 0;
+        int lane = 0, slice = -1, gateSamples = 0, pitch = 0;
         float velocity = 1.0f;
+        bool exact = true;   // breaks: starts on its slice (else between slices, and the slice is the nearest)
     };
     std::vector<RecordedHit>* recordHits = nullptr;
     RenderStatus renderAll (const RenderRequest& request, double sampleRate, double bpm, std::atomic<float>& progress);

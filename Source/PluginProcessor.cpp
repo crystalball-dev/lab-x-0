@@ -40,6 +40,7 @@ LabX0AudioProcessor::LabX0AudioProcessor()
     for (auto& b : meters.breakPosition)
         b.store (-1.0);
     breakMidiNote.fill (-1);
+    breakReleasePending.fill (-1);
     sliceScratch.assign (8192, 0);
 
     applyPreset (0);
@@ -149,6 +150,7 @@ void LabX0AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
             v.prepare (sr);
     breakCurrent.fill (0);
     breakMidiNote.fill (-1);
+    breakReleasePending.fill (-1);
     preview.prepare (sr);
 
     anomaly.prepare (currentSampleRate);
@@ -411,6 +413,7 @@ void LabX0AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
         while (ei < numEvents && events[(size_t) ei].offset <= pos)
             handleSeqEvent (events[(size_t) ei++]);
+        applyPendingReleases();
 
         int next = numSamples;
         if (midiIt != midiEnd)
@@ -858,8 +861,8 @@ void LabX0AudioProcessor::renderControlBlock (float* outL, float* outR, int n, d
 //==============================================================================
 void LabX0AudioProcessor::handleSeqEvent (const dsp::SeqEvent& e) noexcept
 {
-    if (recordHits != nullptr)   // an offline renderer writing the MIDI file
-        recordHits->push_back ({ engineClock, e.lane, e.slice, e.gateSamples, e.velocity });
+    if (recordHits != nullptr && e.lane < numPads)   // an offline renderer writing the MIDI file (breaks: triggerBreak)
+        recordHits->push_back ({ engineClock, e.lane, -1, e.gateSamples, e.pitch, e.velocity, true });
     if (e.lane < numPads)
         triggerPad (e.lane, e.velocity, e.pitch, e.gateSamples);
     else if (e.lane < laneTime)
@@ -1045,6 +1048,23 @@ void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, floa
     const int gate = choiceOf (P::brk (b, P::brGate));
     const float decay = rawValue (P::brk (b, P::brDecay));
 
+    if (recordHits != nullptr)
+    {
+        // The slice note that plays this start back: the slice it starts on, else the nearest one.
+        int nearest = 0;
+        double distance = std::numeric_limits<double>::max();
+        for (int i = 0; i < sc.count; ++i)
+        {
+            const double gap = std::abs (std::max (1.0, (double) sc.starts[(size_t) i]) - sourcePos);
+            if (gap < distance)
+            {
+                distance = gap;
+                nearest = i;
+            }
+        }
+        recordHits->push_back ({ engineClock, laneFirstBreak + b, nearest, 0, pitch, velocity, distance < 0.5 });
+    }
+
     double stopAt = -1.0;
     if (gate == Choice::gateSlice || sliceGate)
     {
@@ -1076,6 +1096,7 @@ void LabX0AudioProcessor::triggerBreak (int b, double sourcePos, int slice, floa
     voice.start (d, s);
     voice.updateFilter (breakSettings[(size_t) b].tone);
     breakMidiNote[(size_t) b] = midiNote ? note : -1;
+    ++breakSerial[(size_t) b];
    #if LABX0_HARNESS
     ++breakTriggers;
    #endif
@@ -1095,7 +1116,7 @@ void LabX0AudioProcessor::triggerBreakStep (int b, const dsp::SeqEvent& e) noexc
     if (e.slice >= 0)
     {
         const int s = e.slice % sc.count;
-        triggerBreak (b, (double) sc.starts[(size_t) s], s, e.velocity, e.pitch, false, -1);
+        triggerBreak (b, std::max (1.0, (double) sc.starts[(size_t) s]), s, e.velocity, e.pitch, false, -1);
         return;
     }
 
@@ -1135,7 +1156,7 @@ void LabX0AudioProcessor::triggerBreakSlice (int b, int slice, float velocity, i
     triggerBreak (b, std::max (1.0, (double) sc.starts[(size_t) s]), s, velocity, 0, true, note);
 }
 
-void LabX0AudioProcessor::releaseMidiNote (int note) noexcept
+void LabX0AudioProcessor::releaseMidiNote (int channel, int note) noexcept
 {
     if (note >= midiFirstPad && note < midiFirstPad + numPads)
     {
@@ -1144,13 +1165,44 @@ void LabX0AudioProcessor::releaseMidiNote (int note) noexcept
             if (v.isSounding() && v.getPad() == pad)
                 v.noteOff();
     }
+    const int key = midiKey (channel, note);
     for (int b = 0; b < numBreaks; ++b)
-        if (breakMidiNote[(size_t) b] == note)
+        if (breakMidiNote[(size_t) b] == key)
+        {
+            // The note started at this very sample: this note-off ends the note before it.
+            if (breakSerial[(size_t) b] != breakSerialRendered[(size_t) b])
+                continue;
+            if (choiceOf (P::brk (b, P::brGate)) == Choice::gateLegato)
+                breakReleasePending[(size_t) b] = (int64_t) breakSerial[(size_t) b];
+            breakMidiNote[(size_t) b] = -1;
+        }
+}
+
+void LabX0AudioProcessor::releaseAllMidiNotes() noexcept
+{
+    for (auto& v : padVoices)
+        if (v.isSounding())
+            v.noteOff();
+    for (int b = 0; b < numBreaks; ++b)
+        if (breakMidiNote[(size_t) b] >= 0)
         {
             if (choiceOf (P::brk (b, P::brGate)) == Choice::gateLegato)
                 breakVoices[(size_t) b][(size_t) breakCurrent[(size_t) b]].release();
             breakMidiNote[(size_t) b] = -1;
         }
+}
+
+// Before audio moves on from a sample: a break released there is released, unless it was started again there.
+void LabX0AudioProcessor::applyPendingReleases() noexcept
+{
+    for (int b = 0; b < numBreaks; ++b)
+    {
+        auto& pending = breakReleasePending[(size_t) b];
+        if (pending >= 0 && (uint32_t) pending == breakSerial[(size_t) b])
+            breakVoices[(size_t) b][(size_t) breakCurrent[(size_t) b]].release();
+        pending = -1;
+        breakSerialRendered[(size_t) b] = breakSerial[(size_t) b];
+    }
 }
 
 void LabX0AudioProcessor::handleMidi (const juce::MidiMessage& m, int) noexcept
@@ -1159,21 +1211,25 @@ void LabX0AudioProcessor::handleMidi (const juce::MidiMessage& m, int) noexcept
     if (m.isNoteOn())
     {
         const int note = m.getNoteNumber();
+        const int channel = m.getChannel();
         const float vel = m.getFloatVelocity();
         if (note >= midiFirstPad && note < midiFirstPad + numPads)
             triggerPad (note - midiFirstPad, vel, 0, -1);
         else if (note >= midiFirstBreak && note < midiFirstBreak + numBreaks)
-            triggerBreak (note - midiFirstBreak, 1.0, 0, vel, 0, true, note);
+            triggerBreak (note - midiFirstBreak, 1.0, 0, vel, 0, true, midiKey (channel, note));
         else if (note >= midiFirstSlice && note < midiFirstSlice + midiSliceCount)
-            triggerBreakSlice (std::clamp (choiceOf (P::sliceMidi), 0, numBreaks - 1), note - midiFirstSlice, vel, note);
+        {
+            // Channels 2-5 (FL's note colours 2-5) play the slices of break A-D, any other the SLICE MIDI slot.
+            const int b = channel >= midiFirstBreakChannel && channel < midiFirstBreakChannel + numBreaks
+                              ? channel - midiFirstBreakChannel
+                              : std::clamp (choiceOf (P::sliceMidi), 0, numBreaks - 1);
+            triggerBreakSlice (b, note - midiFirstSlice, vel, midiKey (channel, note));
+        }
     }
     else if (m.isNoteOff())
-        releaseMidiNote (m.getNoteNumber());
+        releaseMidiNote (m.getChannel(), m.getNoteNumber());
     else if (m.isAllNotesOff())
-    {
-        for (int note = 0; note < 128; ++note)
-            releaseMidiNote (note);
-    }
+        releaseAllMidiNotes();
     else if (m.isAllSoundOff())
         allSoundOff();
     else if (m.isController() && m.getControllerNumber() == 1)
@@ -1189,6 +1245,7 @@ void LabX0AudioProcessor::allSoundOff() noexcept
             v.kill();
     preview.stop();
     anomaly.reset();
+    breakReleasePending.fill (-1);
 }
 
 void LabX0AudioProcessor::flushForProgramChange() noexcept
@@ -1200,6 +1257,7 @@ void LabX0AudioProcessor::flushForProgramChange() noexcept
             v.kill();
     preview.stop();
     anomaly.reset();
+    breakReleasePending.fill (-1);
     transient.reset();
     multiband.reset();
     punch.reset();
@@ -1712,21 +1770,57 @@ LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderAll (const RenderRe
 
         if (solo < 0)
         {
-            // The hits as the engine played them (swing, nudge, ratchets and probability included).
+            // The hits as the engine played them (swing, nudge, ratchets and probability included), written so the file
+            // plays back into LAB X-0 as rendered: pads on channel 1 (notes 36-51) for their gate, breaks A-D on
+            // channels 2-5 (FL's note colours 2-5) as slice notes (60-91) held until the break's next start or the end
+            // of the last pass, as the step sequencer holds them. A note has no room for step pitch, and a break start
+            // between slices (a natural step with FIT on REPITCH or STRETCH) takes the nearest slice: the status line
+            // counts both.
+            const double ticksPerSample = bpm / 60.0 / sampleRate * 960.0;
+            const auto tickOf = [ticksPerSample] (juce::int64 sample) { return (double) std::llround ((double) sample * ticksPerSample); };
             juce::MidiMessageSequence sequence;
             sequence.addEvent (juce::MidiMessage::tempoMetaEvent ((int) std::lround (60000000.0 / bpm)), 0.0);
             sequence.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
-            const double ticksPerSample = bpm / 60.0 / sampleRate * 960.0;
-            for (const auto& h : hits)
+            int pitched = 0, between = 0, unreachable = 0;
+            for (size_t i = 0; i < hits.size(); ++i)
             {
-                const int note = h.lane < numPads ? midiFirstPad + h.lane
-                                                  : (h.slice >= 0 && h.slice < midiSliceCount ? midiFirstSlice + h.slice : midiFirstBreak + (h.lane - numPads));
-                const double tick = (double) h.sample * ticksPerSample;
-                const double ticks = std::max (30.0, (double) std::max (1, h.gateSamples) * ticksPerSample * 0.9);
-                sequence.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) juce::jlimit (1, 127, (int) std::lround (h.velocity * 127.0f))), tick);
-                sequence.addEvent (juce::MidiMessage::noteOff (1, note), tick + ticks);
+                const auto& h = hits[i];
+                const double on = tickOf (h.sample);
+                double next = -1.0;   // the lane's next hit: a retrigger cuts this one anyway
+                for (size_t k = i + 1; k < hits.size(); ++k)
+                    if (hits[k].lane == h.lane)
+                    {
+                        next = tickOf (hits[k].sample);
+                        break;
+                    }
+                if (next >= 0.0 && next <= on)
+                    continue;   // replaced within the same tick
+                const bool isPad = h.lane < numPads;
+                if (! isPad && h.slice >= midiSliceCount)
+                {
+                    ++unreachable;
+                    continue;
+                }
+                pitched += h.pitch != 0 ? 1 : 0;
+                between += h.exact ? 0 : 1;
+                const int channel = isPad ? 1 : midiFirstBreakChannel + (h.lane - laneFirstBreak);
+                const int note = isPad ? midiFirstPad + h.lane : midiFirstSlice + h.slice;
+                double off = std::max (on + 1.0, isPad ? tickOf (h.sample + std::max (1, h.gateSamples)) : tickOf (body));
+                if (next >= 0.0)
+                    off = isPad ? std::min (off, next) : next;
+                sequence.addEvent (juce::MidiMessage::noteOn (channel, note, (juce::uint8) juce::jlimit (1, 127, (int) std::lround (h.velocity * 127.0f))), on);
+                sequence.addEvent (juce::MidiMessage::noteOff (channel, note), off);
             }
             sequence.updateMatchedPairs();
+            juce::StringArray notes;
+            if (between > 0)
+                notes.add (juce::String (between) + (between == 1 ? " BREAK HIT STARTS" : " BREAK HITS START") + " BETWEEN SLICES (MOVED TO THE NEAREST)");
+            if (unreachable > 0)
+                notes.add (juce::String (unreachable) + (unreachable == 1 ? " HIT ON A SLICE" : " HITS ON SLICES") + " PAST 32 LEFT OUT");
+            if (pitched > 0)
+                notes.add (juce::String (pitched) + (pitched == 1 ? " HIT WITH STEP PITCH PLAYS" : " HITS WITH STEP PITCH PLAY") + " UNPITCHED");
+            status.midi = notes.isEmpty() ? juce::String ("MIDI: PADS ON CHANNEL 1, BREAKS A-D ON CHANNELS 2-5 (FL NOTE COLOURS 1-5)")
+                                          : "MIDI APPROXIMATE: " + notes.joinIntoString (", ");
             juce::MidiFile midiFile;
             midiFile.setTicksPerQuarterNote (960);
             midiFile.addTrack (sequence);
