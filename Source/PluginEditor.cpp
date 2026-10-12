@@ -93,6 +93,9 @@ LabX0AudioProcessorEditor::LabX0AudioProcessorEditor (LabX0AudioProcessor& p)
             renderPanel.toFront (false);
     };
     addAndMakeVisible (renderButton);
+    labx0::ui::styleButton (outsButton, "Put every lane on a mixer track of its own (each lane's OUT), or all back on the main output");
+    outsButton.onClick = [this] { showOutsMenu(); };
+    addAndMakeVisible (outsButton);
     addChildComponent (renderPanel);
 
     addAndMakeVisible (overlay);
@@ -216,6 +219,30 @@ void LabX0AudioProcessorEditor::layoutRow (std::vector<Panel>& row, juce::Rectan
     }
 }
 
+// OUTS: every lane's OUT at once. FL Studio plays an output it has not given a mixer track on the plugin's own
+// track, so the menu says where FL's mapping is.
+void LabX0AudioProcessorEditor::showOutsMenu()
+{
+    const int own = audioProcessor.countLanesOnOwnOutput();
+    const int lanes = labx0::numPads + labx0::numBreaks;
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("EVERY LANE'S OUT");
+    menu.addItem (1, "Every lane on its own output: pads 1-16 on Out 2-17, breaks A-D on Out 18-21", true, own == lanes);
+    menu.addItem (2, "Every lane on the main output", true, own == 0);
+    menu.addSeparator();
+    menu.addSectionHeader ("IN FL STUDIO");
+    menu.addItem (3, "Wrapper (cog at the top left) > Processing > Auto map outputs gives each output a mixer track", false, false);
+    menu.addItem (4, "An output with no mixer track plays on LAB X-0's own track", false, false);
+    menu.addItem (5, "LAB X-0 on the Master track: pad 1 lands on Insert 1, pad 16 on 16, breaks A-D on 17-20", false, false);
+    menu.addItem (6, "A lane on its own output skips ANOMALY, PUNCH and the MASTER section", false, false);
+    juce::Component::SafePointer<LabX0AudioProcessorEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&outsButton), [safe] (int result)
+    {
+        if (safe != nullptr && (result == 1 || result == 2))
+            safe->audioProcessor.setEveryLaneOutput (result == 1);
+    });
+}
+
 void LabX0AudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
@@ -224,6 +251,7 @@ void LabX0AudioProcessorEditor::resized()
     auto header = bounds.withHeight (headerHeight).reduced (margin, 14);
     auto presetArea = header.withSizeKeepingCentre (360, 26).translated (90, -4);
     renderButton.setBounds (presetArea.withX (presetArea.getRight() + 14).withWidth (96));
+    outsButton.setBounds (renderButton.getBounds().translated (96 + 8, 0).withWidth (76));
     prevButton.setBounds (presetArea.removeFromLeft (26));
     nextButton.setBounds (presetArea.removeFromRight (26));
     presetBox.setBounds (presetArea.reduced (4, 0));

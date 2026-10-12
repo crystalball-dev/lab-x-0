@@ -25,6 +25,7 @@ public:
 
     // Pulls meters, playheads and status from the processor. Public so the render harness can call it.
     void showRenderPanel() { renderPanel.setVisible (true); renderPanel.toFront (false); }
+    void showOutsMenu();
     void refreshFromProcessor();
 
     static constexpr int editorWidth = 1400;
@@ -70,7 +71,7 @@ private:
 
     juce::ComboBox presetBox;
     juce::TextButton prevButton { "<" }, nextButton { ">" };
-    juce::TextButton renderButton { "RENDER" };
+    juce::TextButton renderButton { "RENDER" }, outsButton { "OUTS" };
     labx0::ui::RenderPanel renderPanel { context };
     labx0::ui::EmissionGauge gauge;
     labx0::ui::Dosimeter dosimeter;

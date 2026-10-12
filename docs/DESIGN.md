@@ -375,3 +375,22 @@ was sounding when a window fails.
 
 Verification: the full suite passes, 36 tests and 93 checks, pluginval strictness 10, 44x real time on one core.
 
+## 0.2.3: OUTS, every lane on its own output at once
+
+Reported by the user: OUT 2 "does not route". LAB X-0 did send the lane to output 2, but FL Studio plays an output it
+has not given a mixer track (Processing > Connections shows "---") on the plugin's own track, so nothing seemed to
+change. Once the outputs were auto-mapped, the one lane on OUT 2 played on its own track and every other lane, still
+on Main, on LAB X-0's: one lane per track took twenty OUT menus. (FL listed all 21 outputs as active. In JUCE's VST3
+wrapper an output reaches the host only once the host activates it; a lane whose output is off plays on the main
+output, as before.)
+
+The header's OUTS button now sets every lane's OUT at once: pads 1-16 on outputs 2-17 and breaks A-D on 18-21, or
+every lane back on Main. Its menu says where FL's mapping is and what auto map does: with LAB X-0's channel on the
+Master track and its outputs auto-mapped, pad k plays on Insert k and breaks A-D on Inserts 17-20. The README's FL
+steps now say that an output without a track plays on LAB X-0's own, and that auto map does not skip tracks in use.
+
+Test 31: the OUTS action sends pad 1, pad 2 and break A to outputs 2, 3 and 18 on the sample, and leaves the main
+output empty.
+
+Verification: the full suite passes, 36 tests and 94 checks, pluginval strictness 10, 44x real time on one core.
+

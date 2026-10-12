@@ -1068,6 +1068,23 @@ def t31_outputs(T):
     drop = float(st0.get("out2_peak_db", "0")) - quiet_peak
     T.record(31, "the lane's own level applies on its output (-12 dB)", abs(drop - 12.0) < 0.1, {"drop_db": round(drop, 2)})
 
+    # The OUTS menu (0.2.3): every lane on its own output, pad k on Out k+1 and break A on Out 18; the main output empty.
+    for old in OUT.glob("outputs_every_out*.wav"):
+        old.unlink()
+    wav, st = render("outputs_every", INIT + ["--bpm", BPM, "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"),
+                                              "--break", "1=" + fx("slicing/click_loop.wav"), "--every-lane-out",
+                                              "--pattern", pat(["p1:x...x...x...x...", "p2:..x...x...x...x.", "b1:x"]),
+                                              "--seconds", "1.35", "--multi-out", OUT / "outputs_every"])
+    main, sr = load_mono(wav)
+    files = sorted(f.name for f in OUT.glob("outputs_every_out*.wav"))
+    pad1 = detect_onsets(load_mono(OUT / "outputs_every_out2.wav")[0], sr, rel=0.25, min_gap=0.05) if (OUT / "outputs_every_out2.wav").exists() else []
+    pad2 = detect_onsets(load_mono(OUT / "outputs_every_out3.wav")[0], sr, rel=0.25, min_gap=0.05) if (OUT / "outputs_every_out3.wav").exists() else []
+    ok1, _ = match_times(pad1, clicks, 1.01 / sr)
+    ok2, _ = match_times(pad2, snares, 1.01 / sr)
+    T.record(31, "the OUTS menu puts every lane on its own output: pad 1 on Out 2, pad 2 on Out 3, break A on Out 18; main empty",
+             clean(st) and ok1 and ok2 and files == ["outputs_every_out18.wav", "outputs_every_out2.wav", "outputs_every_out3.wav"]
+             and rms_db(main) < -100, {"files": files, "main_db": round(rms_db(main), 1)})
+
     # A VOLUME mute over the whole bar silences the main output's FULL bus, not a lane on its own output.
     muted = ["--set", "p02_route=0", "--pat", "0:" + pat(["p1:x...x...x...x...", "p2:..x...x...x...x.", "v:mmmmmmmmmmmmmmmm"])]
     wav, st = render("outputs_anomaly", INIT + ["--bpm", BPM, "--pad", "1=" + fx("click.wav"), "--pad", "2=" + fx("snare.wav"),

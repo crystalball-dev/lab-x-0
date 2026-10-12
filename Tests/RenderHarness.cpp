@@ -7,6 +7,7 @@
 //               [--set id=value ...] [--cc "1:127@0.5"] [--program-at "4@2.5"] [--tail-from <s>] [--no-trim]
 //               [--png <file.png> [--png-wait <ms>]] [--roundtrip] [--fault-log <file>] [--inject <stage>@<s>]
 //               [--multi-out <prefix>]   (all 21 outputs; each extra output with sound goes to <prefix>_outK.wav)
+//               [--every-lane-out]       (the OUTS menu: pad 1-16 on Out 2-17, break A-D on Out 18-21)
 //               [--slices 1=0,11952,23952]   (hand-placed slice starts for break slot A, in samples)
 //               [--explode 1[:5]]            (break A's components to pads 1.. (or 5..) and the first empty pattern)
 //               [--render <folder> [--render-what 0|1|2] [--render-lane L] [--render-passes N] [--render-bpm X]]
@@ -959,6 +960,8 @@ int main (int argc, char* argv[])
             return 2;
     if (args.contains ("--free"))
         setParam (*proc, "run=1");
+    if (args.contains ("--every-lane-out"))   // the OUTS menu: every lane on its own output
+        proc->setEveryLaneOutput (true);
 
     // --multi-out renders every output bus, as a host that enabled them all; otherwise the main stereo output only,
     // and lanes set to another output fall back to it.

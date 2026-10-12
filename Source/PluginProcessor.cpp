@@ -1874,6 +1874,25 @@ LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderNow (const RenderRe
     return renderer->renderAll (r, r.sampleRate, r.bpm, progress);
 }
 
+void LabX0AudioProcessor::setEveryLaneOutput (bool ownOutputs)
+{
+    for (int lane = 0; lane < numPads + numBreaks; ++lane)
+        if (auto* p = apvts.getParameter (outParamId (lane)))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 (ownOutputs ? (float) (lane + 1) : 0.0f));
+            p->endChangeGesture();
+        }
+}
+
+int LabX0AudioProcessor::countLanesOnOwnOutput() const
+{
+    int n = 0;
+    for (int lane = 0; lane < numPads + numBreaks; ++lane)
+        n += choiceOf (P::out (lane)) > 0 ? 1 : 0;
+    return n;
+}
+
 bool LabX0AudioProcessor::startRender (const RenderRequest& request)
 {
     if (renderBusy.exchange (true))

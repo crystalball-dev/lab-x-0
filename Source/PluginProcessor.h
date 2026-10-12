@@ -93,6 +93,11 @@ public:
         juce::File folder;
     };
     bool startRender (const RenderRequest& request);    // message thread; false while one is running
+
+    // OUTS menu (message thread): every lane on its own output (pad 1-16 on Out 2-17, break A-D on Out 18-21), or
+    // every lane on the main output.
+    void setEveryLaneOutput (bool ownOutputs);
+    int countLanesOnOwnOutput() const;   // how many lanes are on an output of their own
     RenderStatus getRenderStatus() const;
     int getRenderVersion() const noexcept { return renderVersion.load(); }
     RenderStatus renderNow (const RenderRequest& request);   // all at once on this thread (the harness)
