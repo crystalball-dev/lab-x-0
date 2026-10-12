@@ -10,7 +10,7 @@
 //               [--every-lane-out]       (the OUTS menu: pad 1-16 on Out 2-17, break A-D on Out 18-21)
 //               [--slices 1=0,11952,23952]   (hand-placed slice starts for break slot A, in samples)
 //               [--explode 1[:5]]            (break A's components to pads 1.. (or 5..) and the first empty pattern)
-//               [--render <folder> [--render-what 0|1|2] [--render-lane L] [--render-passes N] [--render-bpm X]]
+//               [--render <folder> [--render-what 0|1|2|3] [--render-lane L] [--render-passes N] [--render-bpm X]]
 // --pad and --break take <ref>[@offset[,length]] (seconds): a region of the file.
 //   LabX0Render --fuzz --seconds 300 [--seed 1] [--vary-blocks]
 //   LabX0Render --selftest-buffer
@@ -1003,7 +1003,7 @@ int main (int argc, char* argv[])
 
     if (args.contains ("--render"))
     {
-        // --render <folder> [--render-what 0 mix | 1 mix and stems | 2 one lane] [--render-lane 1..20] [--render-passes N]
+        // --render <folder> [--render-what 0 mix | 1 mix and stems | 2 one lane | 3 stems only] [--render-lane 1..20] [--render-passes N]
         // [--render-bpm X]: what the RENDER panel does, all at once.
         LabX0AudioProcessor::RenderRequest request;
         request.folder = juce::File (option (args, "--render"));

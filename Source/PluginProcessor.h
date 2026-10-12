@@ -77,7 +77,7 @@ public:
     struct RenderRequest
     {
         int pattern = 0, passes = 1;
-        int what = 0;                  // 0 mix, 1 mix and stems, 2 one lane
+        int what = 0;                  // 0 mix, 1 mix and stems, 2 one lane, 3 stems only
         int lane = 0;                  // for what == 2
         double bpm = 0.0;              // 0 = the host's last tempo
         double sampleRate = 0.0;       // 0 = the current rate

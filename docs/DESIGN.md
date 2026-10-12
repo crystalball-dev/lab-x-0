@@ -394,3 +394,23 @@ output empty.
 
 Verification: the full suite passes, 36 tests and 94 checks, pluginval strictness 10, 44x real time on one core.
 
+## 0.2.4: stems only, and stems as each output hears them
+
+Asked by the user: the loop as one WAV, or every used lane as a WAV of its own. RENDER had both, but its stems came
+with the mix, and DRAG ALL dropped the mix and the MIDI file along with them, so the mix doubled every lane on the
+playlist.
+
+- RENDER's first menu: MIX (the loop as one WAV); EVERY LANE (one WAV per lane with steps, unmuted and holding a
+  sample, each as long as the mix; the mix pass still runs for that length and for the MIDI file, but writes no WAV);
+  MIX + EVERY LANE; SELECTED LANE.
+- DRAG ALL WAVS drags the WAVs only; the MIDI file keeps its own row.
+- RENDER now processes every output. It used the main output alone, so a lane on its own output fell back to it and
+  went through ANOMALY, PUNCH and the master section, which the lane skips in the host. A lane on its own output now
+  renders as it leaves there, and the mix sums every output, as FL Studio's mixer gets them (before its own effects).
+
+Test 34: a stems-only render writes the same stems as MIX + EVERY LANE and no mix; with pad 1 on output 2 and the
+master at -12 dB, the mix equals a direct render's main output plus output 2, and pad 1's stem equals output 2, both to
+1.2e-7 (6.6 dB louder than the same pad through the master section).
+
+Verification: the full suite passes, 36 tests and 96 checks, pluginval strictness 10, 44x real time on one core.
+

@@ -1682,7 +1682,9 @@ juce::AudioBuffer<float> LabX0AudioProcessor::renderPass (int pattern, double sa
         p->setValueNotifyingHost (p->convertTo0to1 ((float) pattern));
     if (auto* p = apvts.getParameter ("run"))
         p->setValueNotifyingHost (p->convertTo0to1 ((float) Choice::runHost));
-    setPlayConfigDetails (0, 2, sampleRate, block);
+    // Every output: a lane on its own output renders from there (before ANOMALY, PUNCH and the master section), as
+    // FL Studio's mixer gets it, and the outputs are summed.
+    setRateAndBufferSizeDetails (sampleRate, block);
     prepareToPlay (sampleRate, block);
     programChangePending.store (false);
     switchState = SwitchState::idle;
@@ -1690,9 +1692,10 @@ juce::AudioBuffer<float> LabX0AudioProcessor::renderPass (int pattern, double sa
     sequencer.reset();
 
     const int latency = getLatencySamples();
+    const int channels = std::max (2, getTotalNumOutputChannels());
     juce::AudioBuffer<float> out (2, length);
     out.clear();
-    juce::AudioBuffer<float> chunk (2, block);
+    juce::AudioBuffer<float> chunk (channels, block);
     juce::MidiBuffer midi;
     // The pattern plays for `body` samples; then the transport stops (a block ends exactly there, so no hit of the
     // next pass slips in) and voices and effects ring out.
@@ -1704,8 +1707,10 @@ juce::AudioBuffer<float> LabX0AudioProcessor::renderPass (int pattern, double sa
             step = (int) (body - pos);
         head.position = pos;
         head.playing = pos < body;
-        juce::AudioBuffer<float> view (chunk.getArrayOfWritePointers(), 2, step);
+        juce::AudioBuffer<float> view (chunk.getArrayOfWritePointers(), channels, step);
         processBlock (view, midi);
+        for (int ch = 2; ch < channels; ++ch)
+            view.addFrom (ch & 1, 0, view, ch, 0, step);
         const int skip = std::max (0, -written);
         const int n = std::min (step - skip, length - std::max (0, written));
         if (n > 0)
@@ -1739,8 +1744,8 @@ LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderAll (const RenderRe
     const int length = body + (int) (4.0 * sampleRate);   // room for the tails, trimmed after
 
     // Jobs: the mix, then stems (lanes with steps and a sample), or one lane.
-    std::vector<int> solos { -1 };
-    if (request.what == 1)
+    std::vector<int> solos { -1 };   // the mix pass always runs: it sets the stems' length and writes the MIDI file
+    if (request.what == 1 || request.what == 3)
     {
         for (int lane = 0; lane < laneTime; ++lane)
             if (pattern.laneHasContent (lane) && ! pattern.lanes[(size_t) lane].mute && ! bank.getRef (lane).isEmpty())
@@ -1785,12 +1790,15 @@ LabX0AudioProcessor::RenderStatus LabX0AudioProcessor::renderAll (const RenderRe
                  + (sample.isNotEmpty() ? " " + sample : juce::String());
         }
         const auto file = request.folder.getChildFile (juce::File::createLegalFileName (name) + ".wav");
-        if (! writeWav24 (file, trimmed, sampleRate))
+        if (solo >= 0 || request.what != 3)   // stems only: no mix file
         {
-            status.text = "COULD NOT WRITE " + file.getFileName();
-            return status;
+            if (! writeWav24 (file, trimmed, sampleRate))
+            {
+                status.text = "COULD NOT WRITE " + file.getFileName();
+                return status;
+            }
+            status.files.add (file);
         }
-        status.files.add (file);
 
         if (solo < 0)
         {

@@ -14,11 +14,14 @@ namespace labx0::ui
     public:
         explicit RenderPanel (EditorContext& context) : ctx (context)
         {
-            whatBox.addItem ("MIX", 1);
-            whatBox.addItem ("MIX + EVERY LANE (STEMS)", 2);
+            // Item ids are the request's `what` plus one.
+            whatBox.addItem ("MIX: THE LOOP AS ONE WAV", 1);
+            whatBox.addItem ("EVERY LANE: ONE WAV EACH (STEMS)", 4);
+            whatBox.addItem ("MIX + EVERY LANE", 2);
             whatBox.addItem ("SELECTED LANE", 3);
             whatBox.setSelectedId (1, juce::dontSendNotification);
-            whatBox.setTooltip ("Stems: every lane with steps on its own, through ANOMALY and PUNCH, as heard");
+            whatBox.setTooltip ("Stems: one WAV for every lane with steps, as heard (a lane on its own output as it leaves "
+                                "there), each as long as the mix");
             for (const int passes : { 1, 2, 4, 8 })
                 passesBox.addItem (juce::String (passes) + (passes == 1 ? " PASS" : " PASSES"), passes);
             passesBox.setSelectedId (1, juce::dontSendNotification);
@@ -138,7 +141,7 @@ namespace labx0::ui
         class DragAll final : public juce::Component, public juce::SettableTooltipClient
         {
         public:
-            DragAll() { setTooltip ("Drag all the files onto the host at once"); }
+            DragAll() { setTooltip ("Drag every WAV onto the host at once; drop them at one bar (the MIDI file has its own row)"); }
 
             void paint (juce::Graphics& g) override
             {
@@ -149,7 +152,7 @@ namespace labx0::ui
                 g.setColour (ready ? Palette::red : Palette::dim);
                 g.drawRect (b, 1.0f);
                 g.setFont (monoFont (10.5f, true));
-                g.drawText (utf8 ("⇢ DRAG ALL"), b, juce::Justification::centred, false);
+                g.drawText (utf8 ("⇢ DRAG ALL WAVS"), b, juce::Justification::centred, false);
             }
 
             void mouseDown (const juce::MouseEvent&) override { dragging = false; }
@@ -160,7 +163,7 @@ namespace labx0::ui
                 dragging = true;
                 juce::StringArray paths;
                 for (const auto& f : panel->files)
-                    if (f.existsAsFile())
+                    if (f.existsAsFile() && f.hasFileExtension ("wav"))
                         paths.add (f.getFullPathName());
                 juce::DragAndDropContainer::performExternalDragDropOfFiles (paths, false, this);
             }

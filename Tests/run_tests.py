@@ -1251,6 +1251,43 @@ def t34_render(T):
              and all(x[1] == y[1] for x, y in zip(times, want)) and worst < 0.0005,
              {"notes": len(times), "worst_ms": round(1000 * worst, 3), "division": division})
 
+    # Stems only (0.2.4): the same stems, no mix file.
+    only = OUT / "render_stems_only"
+    if only.exists():
+        shutil.rmtree(only)
+    render("render_stems_only_cmd", common + ["--render", only, "--render-what", "3", "--render-passes", "2"])
+    only_files = sorted(f.name for f in only.glob("*")) if only.exists() else []
+    same = False
+    if only_files == ["Pattern 01 pad 01 click.wav", "Pattern 01 pad 02 snare.wav", "Pattern 01.mid"]:
+        a2, _ = load(only / "Pattern 01 pad 01 click.wav")
+        b2, _ = load(only / "Pattern 01 pad 02 snare.wav")
+        same = len(a2) == len(a) and float(np.abs(a2 - a).max()) == 0.0 and float(np.abs(b2 - b).max()) == 0.0
+    T.record(34, "a stems-only render writes one WAV per lane with steps (the same stems) and no mix", same, {"files": only_files})
+
+    # A lane on its own output (0.2.4) renders as it leaves there, dry of the master section, and the mix sums the outputs.
+    routed = common + ["--set", "p01_out=1", "--set", "master_volume=-12"]
+    folder_out = OUT / "render_outputs"
+    if folder_out.exists():
+        shutil.rmtree(folder_out)
+    render("render_outputs_cmd", routed + ["--render", folder_out, "--render-what", "1", "--render-passes", "2"])
+    for old in OUT.glob("render_outputs_direct_out*.wav"):
+        old.unlink()
+    wav, _ = render("render_outputs_direct", routed + ["--seconds", "2.75", "--multi-out", OUT / "render_outputs_direct"])
+    direct_main, _ = load(wav)
+    aux_path = OUT / "render_outputs_direct_out2.wav"
+    ok = (folder_out / "Pattern 01 mix.wav").exists() and aux_path.exists()
+    info = {}
+    if ok:
+        direct_aux, _ = load(aux_path)
+        mix_o, _ = load(folder_out / "Pattern 01 mix.wav")
+        stem_o, _ = load(folder_out / "Pattern 01 pad 01 click.wav")
+        n = min(len(mix_o), len(direct_main), len(direct_aux))
+        mix_err = float(np.abs(mix_o[:n] - (direct_main[:n] + direct_aux[:n])).max())
+        stem_err = float(np.abs(stem_o[:n] - direct_aux[:n]).max())
+        ok = mix_err < 3e-7 and stem_err < 3e-7 and db(float(np.abs(stem_o).max())) - db(float(np.abs(a).max())) > 5.0
+        info = {"mix_vs_outputs": mix_err, "stem_vs_out2": stem_err, "stem_over_main_db": round(db(float(np.abs(stem_o).max())) - db(float(np.abs(a).max())), 2)}
+    T.record(34, "a lane on its own output renders as it leaves there (no master section), and the mix sums every output", ok, info)
+
     one = OUT / "render_lane"
     if one.exists():
         shutil.rmtree(one)
